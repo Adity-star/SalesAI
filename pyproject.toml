@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "salesai"
+version = "0.1.0"
+description = "Synthetic Sales Data Generator & Forecasting Pipeline"
+authors = [
+  { name="Aditya AK", email="aakuskar.980@gmail.com" }
+]
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+
+# Core dependencies for generator + Airflow integration
+dependencies = [
+  "pandas",
+  "numpy",
+  "pyarrow",        # Parquet support
+  "fastparquet>=2024.2",  
+  "holidays",
+  "mlflow",
+  "apache-airflow",  
+  "boto3",          
+  "sqlalchemy",      
+  "scikit-learn",    
+  "matplotlib",      
+  "seaborn",       
+]
+
+[tool.setuptools.packages.find]
+include = ["include", "include.*"]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "black>=24.0",
+  "ruff>=0.4",          
+  "ipython",
+  "jupyterlab"
+]
+
+[project.scripts]
+generate-sales = "include.data_generator:cli"
