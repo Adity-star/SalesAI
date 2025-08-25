@@ -257,7 +257,7 @@ class SyntheticDataGenerator:
                 - discount_percent (float): Discount percentage offered
         """
         promotions = []
-        logger.info("Starting generation of promotions calendar.")
+        logging.info("Starting generation of promotions calendar.")
         
         # Major sales events: (name, month, day, duration_days, discount)
         major_events = [
