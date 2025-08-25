@@ -26,7 +26,8 @@ dependencies = [
   "sqlalchemy",      
   "scikit-learn",    
   "matplotlib",      
-  "seaborn",       
+  "seaborn", 
+        
 ]
 
 [tool.setuptools.packages.find]

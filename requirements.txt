@@ -8,3 +8,4 @@ scipy
 from_root
 pytest
 pytest-cov
+holidays
