@@ -5,7 +5,7 @@ import numpy as np
 import holidays
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
-from include.logger import logging
+from include.logger import logger
 
 
 
@@ -24,7 +24,7 @@ class SyntheticDataGenerator:
         self.end_date = pd.to_datetime(end_date)
         self.us_holidays = holidays.US()
 
-        logging.info(f"📅 Synthetic data generation range: {self.start_date.date()} to {self.end_date.date()}")
+        logger.info(f"📅 Synthetic data generation range: {self.start_date.date()} to {self.end_date.date()}")
 
 
          # Store configurations
@@ -41,7 +41,7 @@ class SyntheticDataGenerator:
             'store_010': {'location': 'Miami', 'size': 'medium', 'base_traffic': 600}
         }
 
-        logging.debug(f"🏬 Configured {len(self.stores)} stores.")
+        logger.debug(f"🏬 Configured {len(self.stores)} stores.")
 
         # Product categories and items
         self.product_categories = {
@@ -81,7 +81,7 @@ class SyntheticDataGenerator:
             for product_id, product_info in products.items():
                 self.all_products[product_id] = {**product_info, 'category': category}
         
-        logging.debug(f"📦 Total products initialized: {len(self.all_products)}")
+        logger.debug(f"📦 Total products initialized: {len(self.all_products)}")
  
 
         
@@ -140,111 +140,91 @@ class SyntheticDataGenerator:
             else:
                 factor = 1.0
 
-            logging.debug(
+            logger.debug(
                 f"[Seasonality] Date: {date.date()} | Type: {seasonality_type} | Factor: {factor:.2f}"
             )
             return round(factor, 2)
 
         except Exception as e:
-            logging.error(f"❌ Error computing seasonality for {date} ({seasonality_type}): {str(e)}")
+            logger.error(f"❌ Error computing seasonality for {date} ({seasonality_type}): {str(e)}")
             return 1.0
 
-        def get_day_of_week_factor(self, date: pd.Timestamp) -> float:
-            """
-            Returns a multiplier based on the day of the week to simulate daily sales variation.
-            
-            Args:
-                date (pd.Timestamp): The date for which to get the day-of-week factor.
-                
-            Returns:
-                float: Multiplicative factor representing sales adjustment for the day.
-            """
-            try:
-                dow = date.dayofweek  # Monday=0, Sunday=6
-                dow_factors = [0.9, 0.85, 0.85, 0.9, 1.1, 1.3, 1.2]
-                factor = dow_factors[dow]
-                logger.debug(f"Day of week factor for {date.date()} (dow={dow}): {factor}")
-                return factor
-            except Exception as e:
-                logger.error(f"Error getting day of week factor for {date}: {e}")
-                return 1.0  # default neutral factor in case of error
-
-
-
-
-        def generate_store_events(self) -> pd.DataFrame:
-            """
-            Generate realistic store-level events such as:
-            - Short-term closures (weather, outages, etc.)
-            - Long-term renovations (reduced traffic for multiple days)
-
-            Returns:
-                pd.DataFrame: Event log with columns [store_id, date, event_type, impact]
-            """
-            events = []
-
-            try:
-                for store_id in self.stores.keys():
-                    # --- Random short-term closures ---
-                    n_closures = random.randint(2, 5)
-                    closure_dates = pd.date_range(self.start_date, self.end_date, periods=n_closures)
-
-                    for date in closure_dates:
-                        events.append({
-                            'store_id': store_id,
-                            'date': date,
-                            'event_type': 'closure',
-                            'impact': -1.0  # Full shutdown
-                        })
-
-                    logging.debug(f"[Closure] {store_id} scheduled {n_closures} closures.")
-                    
-                    # --- Optional long-term renovation ---
-                    if random.random() < 0.3:  # 30% chance
-                        renovation_start = self.start_date + timedelta(days=random.randint(100, 600))
-                        renovation_duration = random.randint(7, 21)
-
-                        for d in range(renovation_duration):
-                            reno_date = renovation_start + timedelta(days=d)
-                            if reno_date <= self.end_date:
-                                events.append({
-                                    'store_id': store_id,
-                                    'date': reno_date,
-                                    'event_type': 'renovation',
-                                    'impact': -0.3  # Partial impact
-                                })
-
-                        logging.debug(
-                            f"[Renovation] {store_id} scheduled from {renovation_start.date()} "
-                            f"for {renovation_duration} days."
-                        )
-
-                logging.info(f"🛠️ Generated {len(events)} store event records.")
-                return pd.DataFrame(events)
-
-            except Exception as e:
-                logging.error(f"❌ Failed to generate store events: {str(e)}")
-                return pd.DataFrame()
-
-            
-            # Store renovations (longer impact)
-            if random.random() < 0.3:  # 30% chance of renovation
-                renovation_start = self.start_date + timedelta(days=random.randint(100, 600))
-                renovation_duration = random.randint(7, 21)
-                
-                for d in range(renovation_duration):
-                    reno_date = renovation_start + timedelta(days=d)
-                    if reno_date <= self.end_date:
-                        events.append({
-                            'store_id': store_id,
-                            'date': reno_date,
-                            'event_type': 'renovation',
-                            'impact': -0.3  # 30% reduction
-                        })
+    def get_day_of_week_factor(self, date: pd.Timestamp) -> float:
+        """
+        Returns a multiplier based on the day of the week to simulate daily sales variation.
         
-        return pd.DataFrame(events)
-    
+        Args:
+            date (pd.Timestamp): The date for which to get the day-of-week factor.
+            
+        Returns:
+            float: Multiplicative factor representing sales adjustment for the day.
+        """
+        try:
+            dow = date.dayofweek  # Monday=0, Sunday=6
+            dow_factors = [0.9, 0.85, 0.85, 0.9, 1.1, 1.3, 1.2]
+            factor = dow_factors[dow]
+            logger.debug(f"Day of week factor for {date.date()} (dow={dow}): {factor}")
+            return factor
+        except Exception as e:
+            logger.error(f"Error getting day of week factor for {date}: {e}")
+            return 1.0  # default neutral factor in case of error
 
+
+    def generate_store_events(self) -> pd.DataFrame:
+        """
+        Generate realistic store-level events such as:
+        - Short-term closures (weather, outages, etc.)
+        - Long-term renovations (reduced traffic for multiple days)
+
+        Returns:
+            pd.DataFrame: Event log with columns [store_id, date, event_type, impact]
+        """
+        events = []
+
+        try:
+            for store_id in self.stores.keys():
+                # --- Random short-term closures ---
+                n_closures = random.randint(2, 5)
+                closure_dates = pd.date_range(self.start_date, self.end_date, periods=n_closures)
+
+                for date in closure_dates:
+                    events.append({
+                        'store_id': store_id,
+                        'date': date,
+                        'event_type': 'closure',
+                        'impact': -1.0  # Full shutdown
+                    })
+
+                logger.debug(f"[Closure] {store_id} scheduled {n_closures} closures.")
+                
+                # --- Optional long-term renovation ---
+                if random.random() < 0.3:  # 30% chance
+                    renovation_start = self.start_date + timedelta(days=random.randint(100, 600))
+                    renovation_duration = random.randint(7, 21)
+
+                    for d in range(renovation_duration):
+                        reno_date = renovation_start + timedelta(days=d)
+                        if reno_date <= self.end_date:
+                            events.append({
+                                'store_id': store_id,
+                                'date': reno_date,
+                                'event_type': 'renovation',
+                                'impact': -0.3  # Partial impact
+                            })
+
+                    logger.debug(
+                        f"[Renovation] {store_id} scheduled from {renovation_start.date()} "
+                        f"for {renovation_duration} days."
+                    )
+
+            logger.info(f"🛠️ Generated {len(events)} store event records.")
+            return pd.DataFrame(events)
+
+        except Exception as e:
+            logger.error(f"❌ Failed to generate store events: {str(e)}")
+            return pd.DataFrame()
+
+            
     def generate_promotions(self) -> pd.DataFrame:
         """
         Generate a promotional calendar with major sales events and random flash sales.
@@ -257,7 +237,7 @@ class SyntheticDataGenerator:
                 - discount_percent (float): Discount percentage offered
         """
         promotions = []
-        logging.info("Starting generation of promotions calendar.")
+        logger.info("Starting generation of promotions calendar.")
         
         # Major sales events: (name, month, day, duration_days, discount)
         major_events = [
@@ -286,7 +266,7 @@ class SyntheticDataGenerator:
                     try:
                         event_date = pd.Timestamp(year, month, day)
                     except Exception as e:
-                        logging.warning(f"Skipping invalid event date for {event_name} in {year}: {e}")
+                        logger.warning(f"Skipping invalid event date for {event_name} in {year}: {e}")
                         continue
                 
                 if self.start_date <= event_date <= self.end_date:
@@ -299,7 +279,7 @@ class SyntheticDataGenerator:
                                     k=random.randint(5, 15)
                                 )
                             except ValueError as e:
-                                logging.error(f"Error sampling promo products: {e}")
+                                logger.error(f"Error sampling promo products: {e}")
                                 promo_products = list(self.all_products.keys())  # fallback: all products
                             
                             for product_id in promo_products:
@@ -320,7 +300,7 @@ class SyntheticDataGenerator:
             try:
                 promo_products = random.sample(list(self.all_products.keys()), k=random.randint(3, 8))
             except ValueError as e:
-                logging.error(f"Error sampling flash sale products: {e}")
+                logger.error(f"Error sampling flash sale products: {e}")
                 promo_products = list(self.all_products.keys())  # fallback
             
             for product_id in promo_products:
@@ -331,7 +311,7 @@ class SyntheticDataGenerator:
                     'discount_percent': round(random.uniform(0.1, 0.3), 2)
                 })
         
-        logging.info(f"Generated {len(promotions)} promotional entries.")
+        logger.info(f"Generated {len(promotions)} promotional entries.")
         return pd.DataFrame(promotions)
 
     def get_day_of_week_factor(self, date: pd.Timestamp) -> float:
@@ -342,21 +322,21 @@ class SyntheticDataGenerator:
             dow = date.dayofweek  # Monday=0, Sunday=6
             dow_factors = [0.9, 0.85, 0.85, 0.9, 1.1, 1.3, 1.2]
             factor = dow_factors[dow]
-            logging.debug(f"Day of week factor for {date.date()} (dow={dow}): {factor}")
+            logger.debug(f"Day of week factor for {date.date()} (dow={dow}): {factor}")
             return factor
         except Exception as e:
-            logging.error(f"Error getting day of week factor for {date}: {e}")
+            logger.error(f"Error getting day of week factor for {date}: {e}")
             return 1.0  # default neutral factor in case of error
 
     def generate_store_events(self) -> pd.DataFrame:
         """
         Generate store-specific events such as closures and renovations with their impact.
         """
-        logging.info("Starting generation of store events (closures and renovations).")
+        logger.info("Starting generation of store events (closures and renovations).")
         events = []
         
         for store_id, store_info in self.stores.items():
-            logging.debug(f"Generating events for store: {store_id} located at {store_info.get('location')}")
+            logger.debug(f"Generating events for store: {store_id} located at {store_info.get('location')}")
             
             # Random store closures (weather, technical issues)
             n_closures = random.randint(2, 5)
@@ -369,13 +349,13 @@ class SyntheticDataGenerator:
                     'event_type': 'closure',
                     'impact': -1.0  # 100% reduction (store closed)
                 })
-            logging.debug(f"Added {n_closures} closure events for store {store_id}.")
+            logger.debug(f"Added {n_closures} closure events for store {store_id}.")
             
             # Store renovations (longer impact)
             if random.random() < 0.3:  # 30% chance of renovation
                 renovation_start = self.start_date + timedelta(days=random.randint(100, 600))
                 renovation_duration = random.randint(7, 21)
-                logging.debug(f"Store {store_id} scheduled renovation starting {renovation_start} for {renovation_duration} days.")
+                logger.debug(f"Store {store_id} scheduled renovation starting {renovation_start} for {renovation_duration} days.")
                 
                 for d in range(renovation_duration):
                     reno_date = renovation_start + timedelta(days=d)
@@ -387,7 +367,7 @@ class SyntheticDataGenerator:
                             'impact': -0.3  # 30% reduction in traffic
                         })
         
-        logging.info(f"Generated total of {len(events)} store events.")
+        logger.info(f"Generated total of {len(events)} store events.")
         return pd.DataFrame(events)
 
     def generate_sales_data(self, output_dir: str = "/tmp/sales_data") -> Dict[str, List[str]]:
@@ -408,7 +388,7 @@ class SyntheticDataGenerator:
         Returns:
             Dict[str, List[str]]: Dictionary containing file paths grouped by category.
         """
-        logging.info("Starting sales data generation.")
+        logger.info("Starting sales data generation.")
         os.makedirs(output_dir, exist_ok=True)
 
         # Generate supplementary data
@@ -436,12 +416,12 @@ class SyntheticDataGenerator:
             store_events_df.to_parquet(events_path, index=False)
             file_paths['store_events'].append(events_path)
         except Exception as e:
-            logging.error(f"Error saving supplementary data: {e}")
+            logger.error(f"Error saving supplementary data: {e}")
 
         current_date = self.start_date
         while current_date <= self.end_date:
             date_str = current_date.strftime('%Y-%m-%d')
-            logging.info(f"Generating data for {date_str}")
+            logger.info(f"Generating data for {date_str}")
 
             daily_sales_data = []
             daily_traffic_data = []
@@ -568,7 +548,7 @@ class SyntheticDataGenerator:
                     inventory_df.to_parquet(inventory_path, index=False)
                     file_paths['inventory'].append(inventory_path)
             except Exception as e:
-                logging.error(f"Error writing daily files for {date_str}: {e}")
+                logger.error(f"Error writing daily files for {date_str}: {e}")
 
             current_date += timedelta(days=1)
 
@@ -587,10 +567,10 @@ class SyntheticDataGenerator:
             os.makedirs(os.path.dirname(metadata_path), exist_ok=True)
             pd.DataFrame([metadata]).to_parquet(metadata_path, index=False)
         except Exception as e:
-            logging.error(f"Error saving metadata: {e}")
+            logger.error(f"Error saving metadata: {e}")
 
-        logging.info(f"Data generation complete. Total files: {metadata['total_files']}")
-        logging.info(f"Sales files: {len(file_paths['sales'])} | Output: {output_dir}")
+        logger.info(f"Data generation complete. Total files: {metadata['total_files']}")
+        logger.info(f"Sales files: {len(file_paths['sales'])} | Output: {output_dir}")
 
         return file_paths
 

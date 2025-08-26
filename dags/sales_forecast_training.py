@@ -4,7 +4,7 @@ import pandas as pd
 
 from datetime import datetime, timedelta
 from airflow.decorators import dag, task
-from include.logger import logging
+from include.logger import logger
 from airflow.utils.log.logging_mixin import LoggingMixin
 
 
