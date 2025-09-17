@@ -30,27 +30,42 @@ models:
 # Feature Engineering
 features:
   date_features:
-    - "year"
-    - "month"
-    - "day"
-    - "dayofweek"
-    - "quarter"
-    - "weekofyear"
-    - "is_weekend"
-    - "is_holiday"
+    enabled: true
+    cols: ["year", "month", "day", "dayofweek", "quarter", "weekofyear", "is_weekend", "is_holiday"]
   
   lag_features:
-    - 1
-    - 2
-    - 3
-    - 7
-    - 14
-    - 21
-    - 30
+    enabled: true
+    lags: [1, 2, 3, 7, 14, 21, 30]
   
   rolling_features:
+    enabled: true
     windows: [3, 7, 14, 21, 30]
     functions: ["mean", "std", "min", "max", "median"]
+
+  cyclical_features:
+    enabled: true
+
+  interaction_features:
+    enabled: false   # turn off if dataset is small or to prevent feature explosion
+
+  ewm_features:
+    enabled: false
+    spans: [7, 14, 30]
+
+  trend_features:
+    enabled: false
+
+  ratio_features:
+    enabled: false
+
+  feature_selection:
+    enabled: true
+    method: "random_forest"
+    top_n: 50
+
+  holiday:
+    country: "US"   # configurable for other datasets
+
 
 # Data Validation
 validation:
