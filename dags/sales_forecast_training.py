@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from airflow.decorators import dag, task
 from include.logger import logger
 from airflow.utils.log.logging_mixin import LoggingMixin
+from include.models.train_models import ModelTrainer
 
 
 # Add include path
