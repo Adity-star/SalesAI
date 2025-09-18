@@ -7,10 +7,11 @@ import traceback
 from typing import Optional, List
 from botocore.client import Config
 from botocore.exceptions import BotoCoreError, ClientError
-from .service_discovery import get_minio_endpoint
+from include.utils.service_discovery import get_minio_endpoint
 
 import logging
 from include.logger import logger
+
 
 logger = logging.getLogger(__name__)
 

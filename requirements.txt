@@ -25,6 +25,7 @@ httpx
 matplotlib
 plotly
 seaborn
+minio
 
 pymongo
 

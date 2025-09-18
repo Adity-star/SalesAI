@@ -127,7 +127,7 @@ with DAG(
     @task(task_id="prepare_and_train")
     def prepare_and_train_task(extract_result, validation_summary):
         file_paths = extract_result["file_paths"]
-        print("Loading sales data from multiple files...")
+        logging.info(f"Loading sales data from multiple files...")
         sales_dfs = []
         max_files = 50
         for i, sales_file in enumerate(file_paths["sales"][:max_files]):
@@ -136,7 +136,7 @@ with DAG(
             if (i + 1) % 10 == 0:
                 print(f"  Loaded {i + 1} files...")
         sales_df = pd.concat(sales_dfs, ignore_index=True)
-        print(f"Combined sales data shape: {sales_df.shape}")
+        logging.info(f"Combined sales data shape: {sales_df.shape}")
         daily_sales = (
             sales_df.groupby(["date", "store_id", "product_id", "category"])
             .agg(
@@ -179,8 +179,8 @@ with DAG(
             daily_sales = daily_sales.merge(
                 traffic_summary, on=["date", "store_id"], how="left"
             )
-        print(f"Final training data shape: {daily_sales.shape}")
-        print(f"Columns: {daily_sales.columns.tolist()}")
+        logging.info(f"Final training data shape: {daily_sales.shape}")
+        logging.info(f"Columns: {daily_sales.columns.tolist()}")
         trainer = ModelTrainer()
         store_daily_sales = (
             daily_sales.groupby(["date", "store_id"])
@@ -204,7 +204,7 @@ with DAG(
             group_cols=["store_id"],
             categorical_cols=["store_id"],
         )
-        print(
+        logging.info(
             f"Train shape: {train_df.shape}, Val shape: {val_df.shape}, Test shape: {test_df.shape}"
         )
         results = trainer.train_all_models(

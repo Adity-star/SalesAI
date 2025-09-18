@@ -90,19 +90,15 @@
 
 import os
 from include.utils.mlflow_utils import MLflowManager
-def main():
-    # optionally load env variables from .env if you use dotenv
-    from dotenv import load_dotenv
-    load_dotenv()
+import mlflow
 
-    mgr = MLflowManager(config_path="include/config/ml_config.yaml")
-    print("Tracking URI:", mgr.tracking_uri)
+mlflow.set_tracking_uri("http://localhost:5001")
+mlflow.set_experiment("test-exp")
 
-    run_id = mgr.start_run("test_run_1")
-    mgr.log_params({"param1": 10, "param2": "hello"})
-    mgr.log_metrics({"accuracy": 0.95})
-    mgr.end_run()
-    print("Run completed")
+with mlflow.start_run(run_name="test-run"):
+    mlflow.log_param("param1", 123)
+    mlflow.log_metric("metric1", 0.95)
+
 
 if __name__ == "__main__":
     main()
