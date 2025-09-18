@@ -1,3 +1,4 @@
+import os
 import yaml
 import joblib
 from include.logger import logger
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 class ModelTrainer:
-    def __init__(self, config_path: str = r"C:\Users\Administrator\OneDrive\Desktop\SalesAI\include\config\ml_config.yaml"):
+    def __init__(self, config_path: str =os.path.join(os.path.dirname(__file__), "..", "config", "ml_config.yaml")):
         with open(config_path, "r") as f:
             self.config = yaml.safe_load(f)
         self.model_config = self.config['models']

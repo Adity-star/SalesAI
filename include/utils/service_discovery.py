@@ -89,8 +89,10 @@ def discover_service_endpoint(
             f"http://host.docker.internal:{default_port}"
         ]
     
-    # Allow override/additional endpoints
-    endpoints = default_endpoints or endpoints
+    # Allow override/additional endpoints. If explicit defaults provided, use them;
+    # otherwise keep the computed list based on environment.
+    if default_endpoints:
+        endpoints = default_endpoints
 
     # 4. Try endpoints
     for endpoint in endpoints:
@@ -104,15 +106,14 @@ def discover_service_endpoint(
     return default
 
 # ----- MLflow-specific -----
-
 def get_mlflow_endpoint(
     timeout: int = 2,
     retries: int = 3,
     backoff: float = 1.0,
-    health_path: str = "/health"
+    health_path: str = "/api/2.0/mlflow/experiments/list"
 ) -> str:
     return discover_service_endpoint(
-        name="MLflow",
+        name="mlflow",  
         env_var="MLFLOW_TRACKING_URI",
         default_endpoints=[],
         health_path=health_path,
