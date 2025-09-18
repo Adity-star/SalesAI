@@ -16,7 +16,7 @@ from include.logger import logger
 logger = logging.getLogger(__name__)
 
 # from from_root import from_root
-config_path = os.path.join(from_root(), "include", "config", "data_validation_config.yaml")
+config_path = os.path.join(from_root(), "include", "config", "ml_config.yaml")
 
 
 try:

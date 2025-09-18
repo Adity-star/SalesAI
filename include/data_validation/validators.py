@@ -8,9 +8,6 @@ from typing import Dict, List, Tuple, Optional, Any
 from pandera import Column, DataFrameSchema, Check
 
 
-logger = logger.getLogger(__name__)
-
-
 import pandas as pd
 import numpy as np
 import yaml
