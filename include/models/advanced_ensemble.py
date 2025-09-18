@@ -2,7 +2,6 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 
-from include.logger import logger
 
 from typing import Dict, List, Tuple, Any
 from sklearn.linear_model import Ridge, Lasso, ElasticNet
@@ -10,7 +9,10 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import KFold
 from sklearn.metrics import mean_squared_error
 
-logger = logger.getLogger(__name__)
+import logging
+from include.logger import logger
+
+logger = logging.getLogger(__name__)
 
 
 class AdvancedEnsemble:

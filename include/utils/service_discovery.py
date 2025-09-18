@@ -7,12 +7,15 @@ import os
 import time
 import urllib.request
 from typing import Optional, List
-from include.logger import Logger
+from include.logger import logger
 from urllib.error import URLError, HTTPError
 
 
-logger = Logger.getLogger(__name__)
-logger.setLevel(Logger.INFO)
+import logging
+from include.logger import logger
+
+logger = logging.getLogger(__name__)
+
 
 
 def _is_in_container() -> bool:

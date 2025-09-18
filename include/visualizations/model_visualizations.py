@@ -7,9 +7,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from typing import Dict, List, Optional, Any, Tuple
-import logging
 from datetime import datetime
 import os
+
+import logging
+from include.logger import logger
 
 logger = logging.getLogger(__name__)
 

@@ -12,12 +12,16 @@ from airflow.decorators import task, task_group
 from airflow.models import Variable
 from airflow.operators.empty import EmptyOperator
 from airflow.operators.python import ShortCircuitOperator, PythonOperator
-from airflow.utils.task_group import TaskGroup
 from airflow.utils.trigger_rule import TriggerRule
 from airflow.utils.log.logging_mixin import LoggingMixin
 
 from include.models.train_models import ModelTrainer
 from include.utils.mlflow_utils import MLflowManager
+
+import logging
+from include.logger import logger
+
+logger = logging.getLogger(__name__)
 
 # Add include path
 sys.path.append("/usr/local/airflow/include")
@@ -44,8 +48,8 @@ APPROVAL_VAR = Variable.get("approve_production_var", "approve_production")
 
 
 with DAG(
-    dag_id="sales_forecast_training_v2",
-    description="Production-ready DAG: Generate, validate, train, evaluate, and promote sales forecasting models",
+    dag_id="sales_forecast_training_v3",
+    description="Generate, validate, train, evaluate, and promote sales forecasting models",
     schedule_interval="@weekly",
     default_args=default_args,
     catchup=False,
@@ -63,7 +67,8 @@ with DAG(
         from include.utils.data_generator import SyntheticDataGenerator
 
         os.makedirs(data_dir, exist_ok=True)
-        generator = SyntheticDataGenerator(start_date="2023-01-01", end_date="2023-12-31")
+
+        generator = SyntheticDataGenerator(start_date="2023-01-01", end_date="2023-02-28")
         file_paths = generator.generate_sales_data(output_dir=data_dir)
 
         total_files = sum(len(paths) for paths in file_paths.values())
@@ -119,20 +124,14 @@ with DAG(
     # -------------------------
     # Prepare & Train (TaskGroup)
     # -------------------------
-    @task_group(group_id="prepare_and_train")
-    def prepare_and_train(extract_result: dict, validation_summary: dict, artifacts_dir: str = ARTIFACT_DIR) -> dict:
-        """
-        This TaskGroup:
-         - loads files (sample/concat)
-         - builds training dataframe
-         - runs trainer.prepare_data and trainer.train_all_models
-         - logs artifacts via mlflow_manager inside ModelTrainer
-        """
-        file_paths = extract_result["file_paths"]
+    @task(task_id="prepare_and_train")
+    def prepare_and_train_task(extract_result: dict, validation_summary: dict, artifacts_dir: str = ARTIFACT_DIR) -> dict:
+        from include.models.train_models import ModelTrainer
 
-        # Load and aggregate sales files (bounded number for speed)
+        file_paths = extract_result["file_paths"]
         sales_dfs = []
         max_files = int(Variable.get("max_sales_files", 50))
+
         for i, sales_file in enumerate(file_paths.get("sales", [])[:max_files]):
             try:
                 df = pd.read_parquet(sales_file)
@@ -146,24 +145,22 @@ with DAG(
         sales_df = pd.concat(sales_dfs, ignore_index=True)
         log.info(f"Loaded combined sales data shape: {sales_df.shape}")
 
-        # Aggregation to store-level daily sales (same as your earlier logic)
+        # Aggregate
         daily_sales = (
             sales_df.groupby(["date", "store_id", "product_id", "category"], dropna=False)
-            .agg(
-                {
-                    "quantity_sold": "sum",
-                    "revenue": "sum",
-                    "cost": "sum",
-                    "profit": "sum",
-                    "discount_percent": "mean",
-                    "unit_price": "mean",
-                }
-            )
+            .agg({
+                "quantity_sold": "sum",
+                "revenue": "sum",
+                "cost": "sum",
+                "profit": "sum",
+                "discount_percent": "mean",
+                "unit_price": "mean",
+            })
             .reset_index()
         )
         daily_sales = daily_sales.rename(columns={"revenue": "sales"})
 
-        # Optional merges (promotions, traffic) if present
+        # Merge promotions
         if file_paths.get("promotions"):
             try:
                 promo_df = pd.read_parquet(file_paths["promotions"][0])
@@ -179,18 +176,16 @@ with DAG(
 
         if file_paths.get("customer_traffic"):
             try:
-                traffic_dfs = []
-                for tfile in file_paths["customer_traffic"][:10]:
-                    traffic_dfs.append(pd.read_parquet(tfile))
+                traffic_dfs = [pd.read_parquet(f) for f in file_paths["customer_traffic"][:10]]
                 traffic_df = pd.concat(traffic_dfs, ignore_index=True)
-                traffic_summary = traffic_df.groupby(["date", "store_id"]).agg({"customer_traffic":"sum", "is_holiday":"max"}).reset_index()
+                traffic_summary = traffic_df.groupby(["date", "store_id"]).agg({"customer_traffic": "sum", "is_holiday": "max"}).reset_index()
                 daily_sales = daily_sales.merge(traffic_summary, on=["date", "store_id"], how="left")
             except Exception as e:
                 log.warning(f"Traffic merge failed: {e}")
 
-        # Prepare training data for ModelTrainer
+        # Training
         trainer = ModelTrainer()
-        # Convert to store-level time series
+
         store_daily = (
             daily_sales.groupby(["date", "store_id"])
             .agg({
@@ -206,7 +201,6 @@ with DAG(
 
         store_daily["date"] = pd.to_datetime(store_daily["date"])
 
-        # Prepare (calls feature engineering inside trainer)
         train_df, val_df, test_df = trainer.prepare_data(
             store_daily,
             target_col=Variable.get("target_col", "sales"),
@@ -215,7 +209,6 @@ with DAG(
             categorical_cols=["store_id"],
         )
 
-        # Train all models (this method handles mlflow logging internally)
         results = trainer.train_all_models(
             train_df,
             val_df,
@@ -224,17 +217,15 @@ with DAG(
             use_optuna=Variable.get("use_optuna", "true").lower() == "true"
         )
 
-        # Save artifacts in versioned artifact folder and return run_id + summary
         trainer.save_artifacts(version=datetime.now().strftime("%Y%m%d_%H%M%S"))
         import mlflow
         run_id = mlflow.active_run().info.run_id if mlflow.active_run() else None
 
-        # build a light-weight serializable struct for XCom
-        serializable = {
+        return {
             "models": {k: {"metrics": v.get("metrics", {})} for k, v in results.items()},
             "mlflow_run_id": run_id
         }
-        return serializable
+
     
     # -------------------------
     # Evaluate & Choose Best
@@ -257,7 +248,7 @@ with DAG(
     # -------------------------
     # Manual approval gate
     # -------------------------
-    def _approval_check(**ctx):
+    def _approval_check(**kwargs):
         """
         Proceed only when:
          - AUTO_PROMOTE Variable is true OR
@@ -365,7 +356,7 @@ with DAG(
     # -------------------------
     extract_result = extract_data_task()
     validation_summary = validate_data_task(extract_result)
-    training_result = prepare_and_train(extract_result, validation_summary)
+    training_result = prepare_and_train_task(extract_result, validation_summary)
     evaluation_result = evaluate_models_task(training_result)
 
     # Manual approval short-circuit: if returns False, downstream (register/transition) will be skipped
@@ -390,6 +381,5 @@ with DAG(
     end = EmptyOperator(task_id="end", trigger_rule=TriggerRule.NONE_FAILED)
     cleanup >> end
 
-    # expose DAG for Airflow
-    dag = dag  # keep reference
+
 

@@ -8,8 +8,10 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Tuple, Optional, Any
 from datetime import datetime
-import logging
 import json
+
+import logging
+from include.logger import logger
 
 logger = logging.getLogger(__name__)
 

@@ -15,9 +15,10 @@ import traceback
 
 from .service_discovery import get_mlflow_endpoint, get_minio_endpoint
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+import logging
+from include.logger import logger
 
+logger = logging.getLogger(__name__)
 
 class MLflowManager:
     def __init__(self, config_path: str = "/usr/local/airflow/include/config/ml_config.yaml"):

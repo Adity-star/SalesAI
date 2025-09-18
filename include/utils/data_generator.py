@@ -5,7 +5,11 @@ import numpy as np
 import holidays
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
+
+import logging
 from include.logger import logger
+
+logger = logging.getLogger(__name__)
 
 
 

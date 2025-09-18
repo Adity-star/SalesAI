@@ -4,14 +4,15 @@ import boto3
 import shutil
 import traceback
 
-from include.logger import logger
 from typing import Optional, List
 from botocore.client import Config
 from botocore.exceptions import BotoCoreError, ClientError
 from .service_discovery import get_minio_endpoint
 
-logger = logger.getLogger(__name__)
-logger.setLevel(logger.INFO)
+import logging
+from include.logger import logger
+
+logger = logging.getLogger(__name__)
 
 
 class MLflowS3Manager:

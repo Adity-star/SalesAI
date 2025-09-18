@@ -20,7 +20,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from sklearn.linear_model import Ridge
 
-from utils.mlflow_utils import MLflowManager
+from include.utils.mlflow_utils import MLflowManager
 from include.feature_engineering.feature_pipeline import FeaturePipeline
 from include.data_validation.validators import DataValidator
 from include.models.advanced_ensemble import AdvancedEnsemble
@@ -29,7 +29,10 @@ from include.models.ensemble_model import EnsembleModel
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler, MinMaxScaler, RobustScaler
 
 
-logger = logger.getLogger(__name__)
+import logging
+from include.logger import logger
+
+logger = logging.getLogger(__name__)
 
 
 class ModelTrainer:

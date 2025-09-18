@@ -5,10 +5,10 @@ import seaborn as sns
 import json
 from typing import Dict, Any
 from pathlib import Path
+import logging
 from include.logger import logger
 
-logger = logger.getLogger(__name__)
-logger.setLevel(logger.INFO)
+logger = logging.getLogger(__name__)
 
 
 def diagnose_model_performance(train_df: pd.DataFrame, 

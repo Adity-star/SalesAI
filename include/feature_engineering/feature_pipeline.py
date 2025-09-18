@@ -1,26 +1,33 @@
+import os
 import yaml
 import numpy as np
 import pandas as pd
 import holidays
-from include.logger import logger
 from datetime import datetime
 from typing import List, Dict, Tuple, Optional
     
 from typing import List, Optional
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import LabelEncoder
+from  from_root import from_root
+import logging
+from include.logger import logger
+
+logger = logging.getLogger(__name__)
+
+# from from_root import from_root
+config_path = os.path.join(from_root(), "include", "config", "data_validation_config.yaml")
 
 
-logger = logger.getLogger(__name__)
-
-# Load config safely
 try:
-    with open("config.yaml", "r") as f:
+
+    with open(config_path, "r") as f:
         config = yaml.safe_load(f)
     features_cfg = config.get("features", {})
     holiday_cfg = config.get("holiday", {})
+    logger.info("Config loaded successfully.")
 except Exception as e:
-    logger.error(f" Failed to load config.yaml: {e}")
+    logger.error(f"Failed to load config at {config_path}: {e}")
     raise
 
 
