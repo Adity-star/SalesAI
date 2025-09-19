@@ -24,52 +24,90 @@ class MLflowManager:
             self.config = yaml.safe_load(f)
         
         mlflow_config = self.config['mlflow']
-        # Use service discovery to get tracking URI
-        self.tracking_uri = get_mlflow_endpoint()
+
+         # Use service discovery to get tracking URI with debug logging
+        self.tracking_uri = None
+        try:
+            self.tracking_uri = get_mlflow_endpoint()
+            logger.info(f"Mlflow tracking URI discovered: {self.tracking_uri}")
+        except Exception as e:
+            logger.error(f"Error discovering MLflow endpoint: {e}")
+
+        if not self.tracking_uri:
+            self.tracking_uri = "http://localhost:5001"
+            logger.warning(f"Falling back to default MLflow tracking URI: {self.tracking_uri}")
         
         self.experiment_name = mlflow_config['experiment_name']
         self.registry_name = mlflow_config['registry_name']
-        
+
         mlflow.set_tracking_uri(self.tracking_uri)
+        logger.debug(f"MLflow tracking URI set to {self.tracking_uri}")
         
-        # Try to create experiment, with fallback
+        # Try to set experiment with fallback and detailed logging
         try:
             mlflow.set_experiment(self.experiment_name)
+            logger.info(f"Set MLflow experiment: {self.experiment_name}")
         except Exception as e:
-            logger.warning(f"Failed to set experiment {self.experiment_name}: {e}")
-            # Try with localhost if initial connection failed
+            logger.warning(f"Failed to set experiment {self.experiment_name} on {self.tracking_uri}: {e}")
             if 'mlflow' in self.tracking_uri:
                 self.tracking_uri = "http://localhost:5001"
                 mlflow.set_tracking_uri(self.tracking_uri)
                 os.environ['MLFLOW_TRACKING_URI'] = self.tracking_uri
-                logger.info(f"Retrying with localhost: {self.tracking_uri}")
+                logger.info(f"Retrying MLflow set_experiment with fallback URI: {self.tracking_uri}")
                 try:
                     mlflow.set_experiment(self.experiment_name)
+                    logger.info(f"Set MLflow experiment after fallback: {self.experiment_name}")
                 except Exception as e2:
-                    logger.error(f"Failed to connect to MLflow: {e2}")
+                    logger.error(f"Failed to connect to MLflow with fallback URI: {e2}")
         
-        # Configure S3 endpoint for MinIO using service discovery
-        os.environ['MLFLOW_S3_ENDPOINT_URL'] = get_minio_endpoint()
+        # Configure MinIO S3 endpoint with debug info
+        try:
+            minio_endpoint = get_minio_endpoint()
+            os.environ['MLFLOW_S3_ENDPOINT_URL'] = minio_endpoint
+            logger.info(f"Configured MinIO endpoint: {minio_endpoint}")
+        except Exception as e:
+            logger.warning(f"Error discovering MinIO endpoint: {e}")
+            os.environ['MLFLOW_S3_ENDPOINT_URL'] = "http://localhost:9000"
+            logger.info("Falling back to default MinIO endpoint: http://localhost:9000")
+
+       # Set AWS credentials from env or defaults
         os.environ['AWS_ACCESS_KEY_ID'] = os.getenv('AWS_ACCESS_KEY_ID', 'minioadmin')
         os.environ['AWS_SECRET_ACCESS_KEY'] = os.getenv('AWS_SECRET_ACCESS_KEY', 'minioadmin')
-        
-        self.client = MlflowClient(tracking_uri=self.tracking_uri)
+
+        # Create MLflow client with debug info
+        try:
+            self.client = MlflowClient(tracking_uri=self.tracking_uri)
+            logger.debug("Initialized MlflowClient successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize MlflowClient: {e}")
         
     def start_run(self, run_name: Optional[str] = None, tags: Optional[Dict[str, str]] = None) -> str:
         if run_name is None:
             run_name = f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+        if tags and not isinstance(tags, dict):
+            logger.error(f"[MLflowManager] start_run expected tags to be dict but got {type(tags)}: {tags}")
+            tags = {}
         
         run = mlflow.start_run(run_name=run_name, tags=tags)
         logger.info(f"Started MLflow run: {run.info.run_id}")
         return run.info.run_id
     
     def log_params(self, params: Dict[str, Any]):
+        if not isinstance(params, dict):
+            logger.error(f"[MLflowManager] log_params expected dict but got {type(params)}: {params}")
+            return
         for key, value in params.items():
             mlflow.log_param(key, value)
+            logger.debug(f"Logged params: {params}")
     
     def log_metrics(self, metrics: Dict[str, float], step: Optional[int] = None):
+        if not isinstance(metrics, dict):
+            logger.error(f"[MLflowManager] log_metrics expected dict but got {type(metrics)}: {metrics}")
+            return
         for key, value in metrics.items():
-            mlflow.log_metric(key, value, step=step)
+         mlflow.log_metric(key, value, step=step)
+
     
     def log_model(self, model, model_name: str, input_example: Optional[pd.DataFrame] = None,
                   signature: Optional[Any] = None, registered_model_name: Optional[str] = None):
@@ -99,7 +137,8 @@ class MLflowManager:
                 with open(metadata_path, 'w') as f:
                     yaml.dump(metadata, f)
                 mlflow.log_artifact(metadata_path, artifact_path=f"models/{model_name}")
-                
+                logger.info(f"Logged model metadata for {model_name}")
+
         except Exception as e:
             logger.error(f"Failed to log model {model_name}: {e}")
             # Don't fail the entire run, just log the error

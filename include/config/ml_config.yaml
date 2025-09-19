@@ -70,8 +70,8 @@ features:
     method: "random_forest"
     top_n: 50
 
-  holiday:
-    country: "US"   # configurable for other datasets
+holiday:
+  country: "US"   # configurable for other datasets
 
 
 # Data Validation

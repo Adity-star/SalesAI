@@ -44,7 +44,7 @@ class ModelTrainer:
         self.training_config = self.config['training']
 
         self.mlflow_manager = MLflowManager(config_path)
-        self.feature_engineer = FeaturePipeline(config_path)
+        self.feature_engineer = None
 
         self.data_validator = DataValidator(config_path)
 
@@ -70,9 +70,13 @@ class ModelTrainer:
             raise ValueError(f"Missing required columns for training: {missing_cols}")
 
         
-        df_features = self.feature_engineer.create_all_features(
-            df, target_col, date_col, group_cols, categorical_cols)
-        
+        pipeline = FeaturePipeline(df, target_col=target_col, group_cols=group_cols)
+        df_features = pipeline.run()
+
+        if categorical_cols:
+            df_features = pipeline.create_target_encoding(df_features, target_col, categorical_cols)
+            logger.info("Applied target encoding to categorical columns.")
+            
          # Chronological split
         df_sorted = df_features.sort_values(date_col)
         train_size = int(len(df_sorted) * (1 - self.training_config["test_size"] - self.training_config["validation_size"]))

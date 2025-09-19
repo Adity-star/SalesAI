@@ -100,5 +100,5 @@ with mlflow.start_run(run_name="test-run"):
     mlflow.log_metric("metric1", 0.95)
 
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()
