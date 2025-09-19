@@ -3,7 +3,6 @@ import sys
 import json
 import shutil
 from datetime import datetime, timedelta
-from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 

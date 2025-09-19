@@ -174,6 +174,17 @@ class ModelTrainer:
         """
         logger.info("Training XGBoost model")
 
+         # Input validation
+        if len(X_train) == 0 or len(X_val) == 0:
+           raise ValueError("Training or validation data is empty")
+
+            # Detect GPU
+        try:
+            import cupy
+            tree_method = "gpu_hist"
+        except ImportError:
+            tree_method = "hist"
+
         best_params = None
 
         if use_optuna:
@@ -194,12 +205,14 @@ class ModelTrainer:
                     'tree_method': 'hist'  # faster training, GPU if available
                 }
 
-                model = xgb.XGBRegressor(**params)
+                pruning_callback = optuna.integration.XGBoostPruningCallback(trial, "validation_0-rmse")
+
+                model = xgb.XGBRegressor(**params, early_stopping_rounds=50)
                 model.fit(
                     X_train, y_train,
                     eval_set=[(X_val, y_val)],
-                    early_stopping_rounds=50,
-                    verbose=False
+                    verbose=False,
+                    callbacks=[pruning_callback]
                 )
                 y_pred = model.predict(X_val)
                 rmse = np.sqrt(mean_squared_error(y_val, y_pred))
@@ -224,16 +237,17 @@ class ModelTrainer:
             "tree_method": "hist"  # switch to "gpu_hist" if GPU is available
         })
 
-        model = xgb.XGBRegressor(**best_params)
+        model = xgb.XGBRegressor(**best_params, early_stopping_rounds=50)
         model.fit(
             X_train, y_train,
             eval_set=[(X_val, y_val)],
-            early_stopping_rounds=50,
             verbose=True
         )
 
         # Save trained model
         self.models['xgboost'] = model
+        logger.info(f"Best iteration: {model.best_iteration}")
+
 
         return model
     
