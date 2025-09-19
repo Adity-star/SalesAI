@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import pandera as pa
 
-from include.logger import logger
+from src.logger import logger
 from typing import Dict, List, Tuple, Optional, Any
 from pandera import Column, DataFrameSchema, Check
 

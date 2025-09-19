@@ -3,7 +3,7 @@ import sys
 import logging
 from datetime import datetime
 import pandas as pd
-from include.logger import logger
+from src.logger import logger
 
 # Setup logger (similar to your Airflow logger)
 logging.basicConfig(level=logging.INFO)
@@ -18,7 +18,7 @@ ARTIFACT_DIR = os.getenv("ARTIFACT_DIR", "/tmp/artifacts")
 
 def extract_data_task(data_dir=DATA_DIR):
     logger.info("Starting synthetic sales data generation")
-    from include.utils.data_generator import SyntheticDataGenerator
+    from src.data.data_generator import SyntheticDataGenerator
 
     os.makedirs(data_dir, exist_ok=True)
     generator = SyntheticDataGenerator(start_date="2023-01-01", end_date="2023-01-30")
@@ -68,7 +68,7 @@ def validate_data_task(extract_result, sample_n=10):
 
 
 def prepare_and_train_task(extract_result, validation_summary):
-    from include.models.train_models import ModelTrainer
+    from src.models.train_models import ModelTrainer
 
     file_paths = extract_result["file_paths"]
     logger.info(f"Loading sales data from multiple files...")

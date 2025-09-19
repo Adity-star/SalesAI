@@ -5,7 +5,7 @@ import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from include.utils.data_generator import SyntheticDataGenerator
+from src.data.data_generator import SyntheticDataGenerator
 
 @pytest.fixture(scope="session")
 def output_dir():

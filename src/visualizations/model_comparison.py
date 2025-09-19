@@ -11,7 +11,7 @@ from datetime import datetime
 import json
 
 import logging
-from include.logger import logger
+from src.logger import logger
 
 logger = logging.getLogger(__name__)
 

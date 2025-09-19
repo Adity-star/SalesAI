@@ -13,7 +13,7 @@ from airflow.utils.trigger_rule import TriggerRule
 
 
 import logging
-from include.logger import logger
+from src.logger import logger
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ with DAG(
     @task(task_id="extract_data")
     def extract_data_task(data_dir: str = DATA_DIR) -> dict:
         logger.info("Starting synthetic sales data generation")
-        from include.utils.data_generator import SyntheticDataGenerator
+        from src.data.data_generator import SyntheticDataGenerator
 
         os.makedirs(data_dir, exist_ok=True)
 
@@ -119,7 +119,7 @@ with DAG(
     # -------------------------
     @task(task_id="prepare_and_train")
     def prepare_and_train_task(extract_result, validation_summary):
-        from include.models.train_models import ModelTrainer
+        from src.models.train_models import ModelTrainer
 
         file_paths = extract_result["file_paths"]
         logger.info(f"Loading sales data from multiple files...")
@@ -297,7 +297,7 @@ with DAG(
     # -------------------------
     @task(task_id="register_best_models")
     def register_best_models_task(evaluation_result: dict) -> dict:
-        from include.utils.mlflow_utils import MLflowManager
+        from src.utils.mlflow_utils import MLflowManager
 
         best_model = evaluation_result.get("best_model")
         run_id = evaluation_result.get("mlflow_run_id")
@@ -316,7 +316,7 @@ with DAG(
 
     @task(task_id="transition_to_production")
     def transition_to_production_task(registration_result: dict) -> str:
-        from include.utils.mlflow_utils import MLflowManager
+        from src.utils.mlflow_utils import MLflowManager
 
         mlflow_manager = MLflowManager()
         out = []

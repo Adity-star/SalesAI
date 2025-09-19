@@ -11,7 +11,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import LabelEncoder
 from  from_root import from_root
 import logging
-from include.logger import logger
+from src.logger import logger
 
 logger = logging.getLogger(__name__)
 

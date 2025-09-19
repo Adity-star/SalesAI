@@ -1,7 +1,7 @@
 import os
 import yaml
 import joblib
-from include.logger import logger
+from src.logger import logger
 from typing import Dict, List, Tuple, Optional, Any
 
 import pandas as pd
@@ -21,17 +21,17 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from sklearn.linear_model import Ridge
 
-from include.utils.mlflow_utils import MLflowManager
-from include.feature_engineering.feature_pipeline import FeaturePipeline
-from include.data_validation.validators import DataValidator
-from include.models.advanced_ensemble import AdvancedEnsemble
-from include.models.digonistics import diagnose_model_performance
-from include.models.ensemble_model import EnsembleModel
+from src.utils.mlflow_utils import MLflowManager
+from src.features.feature_pipeline import FeaturePipeline
+from src.data.validators import DataValidator
+from src.models.advanced_ensemble import AdvancedEnsemble
+from src.models.digonistics import diagnose_model_performance
+from src.models.ensemble_model import EnsembleModel
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler, MinMaxScaler, RobustScaler
 
 
 import logging
-from include.logger import logger
+from src.logger import logger
 
 logger = logging.getLogger(__name__)
 
@@ -699,7 +699,7 @@ class ModelTrainer:
                                      target_col: str = 'sales') -> None:
         """Generate and log model comparison visualizations to MLflow"""
         try:
-            from include.visualizations.model_visualizations import ModelVisualizer
+            from src.visualizations.model_visualizations import ModelVisualizer
             import tempfile, os, json, mlflow
             
             logger.info("Starting visualization generation...")

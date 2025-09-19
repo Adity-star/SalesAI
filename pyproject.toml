@@ -30,7 +30,7 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["include", "include.*"]
+include = ["src", "src.*"]
 
 [project.optional-dependencies]
 dev = [

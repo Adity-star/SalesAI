@@ -10,7 +10,7 @@ from sklearn.model_selection import KFold
 from sklearn.metrics import mean_squared_error
 
 import logging
-from include.logger import logger
+from src.logger import logger
 
 logger = logging.getLogger(__name__)
 
