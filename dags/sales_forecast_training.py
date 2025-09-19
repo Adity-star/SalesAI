@@ -1,21 +1,16 @@
 import os
 import sys
-import json
-import shutil
 from datetime import datetime, timedelta
 
 import pandas as pd
 
 from airflow import DAG
-from airflow.decorators import task, task_group
+from airflow.decorators import task
 from airflow.models import Variable
 from airflow.operators.empty import EmptyOperator
-from airflow.operators.python import ShortCircuitOperator, PythonOperator
+from airflow.operators.python import ShortCircuitOperator
 from airflow.utils.trigger_rule import TriggerRule
-from airflow.utils.log.logging_mixin import LoggingMixin
 
-from include.models.train_models import ModelTrainer
-from include.utils.mlflow_utils import MLflowManager
 
 import logging
 from include.logger import logger
@@ -25,7 +20,12 @@ logger = logging.getLogger(__name__)
 # Add include path
 sys.path.append("/usr/local/airflow/include")
 
-log = LoggingMixin().log
+
+
+# DAG config from Airflow Variables (fallback defaults)
+DATA_DIR = Variable.get("sales_data_dir", "/tmp/sales_data")
+ARTIFACT_DIR = Variable.get("artifacts_dir", "/tmp/artifacts")
+APPROVAL_VAR = Variable.get("approve_production_var", "approve_production")
 
 
 default_args = {
@@ -36,14 +36,8 @@ default_args = {
     "email_on_retry": False,
     "email": ["aakuskar.980@gmail.com"],
     "retries": 1,
-    "retry_delay": timedelta(minutes=1),
+    "retry_delay": timedelta(minutes=3),
 }
-
-# DAG config from Airflow Variables (fallback defaults)
-DATA_DIR = Variable.get("sales_data_dir", "/tmp/sales_data")
-ARTIFACT_DIR = Variable.get("artifacts_dir", "/tmp/artifacts")
-AUTO_PROMOTE = Variable.get("auto_promote", "false").lower() == "true"
-APPROVAL_VAR = Variable.get("approve_production_var", "approve_production")
 
 
 with DAG(
@@ -62,16 +56,16 @@ with DAG(
     # -------------------------
     @task(task_id="extract_data")
     def extract_data_task(data_dir: str = DATA_DIR) -> dict:
-        log.info("Starting synthetic sales data generation")
+        logger.info("Starting synthetic sales data generation")
         from include.utils.data_generator import SyntheticDataGenerator
 
         os.makedirs(data_dir, exist_ok=True)
 
-        generator = SyntheticDataGenerator(start_date="2023-01-01", end_date="2023-02-28")
+        generator = SyntheticDataGenerator(start_date="2023-01-01", end_date="2023-01-30")
         file_paths = generator.generate_sales_data(output_dir=data_dir)
 
         total_files = sum(len(paths) for paths in file_paths.values())
-        log.info(f"Generated {total_files} files under {data_dir}")
+        logger.info(f"Generated {total_files} files under {data_dir}")
 
         return {"data_output_dir": data_dir, "file_paths": file_paths, "total_files": total_files}
 
@@ -113,9 +107,9 @@ with DAG(
         }
 
         if issues_found:
-            log.warning(f"Validation found {len(issues_found)} issues. Sample: {issues_found[:5]}")
+            logger.warning(f"Validation found {len(issues_found)} issues. Sample: {issues_found[:5]}")
         else:
-            log.info(f"Validation passed. Total rows scanned: {total_rows}")
+            logger.info(f"Validation passed. Total rows scanned: {total_rows}")
 
         return summary
 
@@ -125,8 +119,10 @@ with DAG(
     # -------------------------
     @task(task_id="prepare_and_train")
     def prepare_and_train_task(extract_result, validation_summary):
+        from include.models.train_models import ModelTrainer
+
         file_paths = extract_result["file_paths"]
-        logging.info(f"Loading sales data from multiple files...")
+        logger.info(f"Loading sales data from multiple files...")
         sales_dfs = []
         max_files = 50
         for i, sales_file in enumerate(file_paths["sales"][:max_files]):
@@ -135,7 +131,7 @@ with DAG(
             if (i + 1) % 10 == 0:
                 print(f"  Loaded {i + 1} files...")
         sales_df = pd.concat(sales_dfs, ignore_index=True)
-        logging.info(f"Combined sales data shape: {sales_df.shape}")
+        logger.info(f"Combined sales data shape: {sales_df.shape}")
         daily_sales = (
             sales_df.groupby(["date", "store_id", "product_id", "category"])
             .agg(
@@ -178,8 +174,8 @@ with DAG(
             daily_sales = daily_sales.merge(
                 traffic_summary, on=["date", "store_id"], how="left"
             )
-        logging.info(f"Final training data shape: {daily_sales.shape}")
-        logging.info(f"Columns: {daily_sales.columns.tolist()}")
+        logger.info(f"Final training data shape: {daily_sales.shape}")
+        logger.info(f"Columns: {daily_sales.columns.tolist()}")
         trainer = ModelTrainer()
         store_daily_sales = (
             daily_sales.groupby(["date", "store_id"])
@@ -203,7 +199,7 @@ with DAG(
             group_cols=["store_id"],
             categorical_cols=["store_id"],
         )
-        logging.info(
+        logger.info(
             f"Train shape: {train_df.shape}, Val shape: {val_df.shape}, Test shape: {test_df.shape}"
         )
         results = trainer.train_all_models(
@@ -240,20 +236,33 @@ with DAG(
     # -------------------------
     # Evaluate & Choose Best
     # -------------------------
+    from airflow.exceptions import AirflowSkipException
+
     @task(task_id="evaluate_models")
     def evaluate_models_task(training_result: dict) -> dict:
         models = training_result.get("models", {})
         best_model = None
         best_rmse = float("inf")
+
         for mname, mres in models.items():
             metrics = mres.get("metrics", {})
             rmse = metrics.get("rmse")
             if rmse is not None and rmse < best_rmse:
                 best_rmse = rmse
                 best_model = mname
-        log.info(f"Selected best model: {best_model} (RMSE: {best_rmse})")
-        return {"best_model": best_model, "best_rmse": best_rmse, "mlflow_run_id": training_result.get("mlflow_run_id")}
-    
+
+        if best_model is None:
+            logger.error("No valid model found during evaluation. Skipping downstream tasks.")
+            # You can skip downstream tasks or raise an error as fits your workflow:
+            raise AirflowSkipException("No valid model found")
+
+        logger.info(f"Selected best model: {best_model} (RMSE: {best_rmse})")
+        return {
+            "best_model": best_model,
+            "best_rmse": best_rmse,
+            "mlflow_run_id": training_result.get("mlflow_run_id")
+        }
+
 
     # -------------------------
     # Manual approval gate
@@ -264,15 +273,17 @@ with DAG(
          - AUTO_PROMOTE Variable is true OR
          - APPROVAL_VAR Airflow Variable is set to "true" (manual confirmation)
         """
+        APPROVAL_VAR = Variable.get("approve_production_var", "approve_production")
+
         auto_promote = Variable.get("auto_promote", "false").lower() == "true"
         if auto_promote:
-            log.info("auto_promote is true: skipping manual approval.")
+            logger.info("auto_promote is true: skipping manual approval.")
             return True
         approval = Variable.get(APPROVAL_VAR, "false").lower() == "true"
         if approval:
             log.info(f"Approval variable {APPROVAL_VAR} is true -> proceed with promotion.")
             return True
-        log.info(f"Approval missing. Set Airflow Variable '{APPROVAL_VAR}' to 'true' to promote models.")
+        logger.info(f"Approval missing. Set Airflow Variable '{APPROVAL_VAR}' to 'true' to promote models.")
         return False
     approval_check = ShortCircuitOperator(
         task_id="manual_approval_check",
@@ -285,6 +296,8 @@ with DAG(
     # -------------------------
     @task(task_id="register_best_models")
     def register_best_models_task(evaluation_result: dict) -> dict:
+        from include.utils.mlflow_utils import MLflowManager
+
         best_model = evaluation_result.get("best_model")
         run_id = evaluation_result.get("mlflow_run_id")
         mlflow_manager = MLflowManager()
@@ -294,23 +307,25 @@ with DAG(
             try:
                 ver = mlflow_manager.register_model(run_id, model_name, model_name)
                 versions[model_name] = ver
-                log.info(f"Registered {model_name} version {ver}")
+                logger.info(f"Registered {model_name} version {ver}")
             except Exception as e:
-                log.warning(f"Failed to register {model_name}: {e}")
+                logger.warning(f"Failed to register {model_name}: {e}")
         return {"registered_versions": versions}
 
 
     @task(task_id="transition_to_production")
     def transition_to_production_task(registration_result: dict) -> str:
+        from include.utils.mlflow_utils import MLflowManager
+
         mlflow_manager = MLflowManager()
         out = []
         for model_name, version in registration_result.get("registered_versions", {}).items():
             try:
                 mlflow_manager.transition_model_stage(model_name, version, "Production")
                 out.append(f"{model_name}:v{version}")
-                log.info(f"Transitioned {model_name} v{version} to Production")
+                logger.info(f"Transitioned {model_name} v{version} to Production")
             except Exception as e:
-                log.warning(f"Failed to transition {model_name} v{version}: {e}")
+                logger.warning(f"Failed to transition {model_name} v{version}: {e}")
         return ";".join(out)
 
      # -------------------------
@@ -318,6 +333,7 @@ with DAG(
     # -------------------------
     @task(task_id="generate_performance_report")
     def generate_performance_report_task(training_result: dict, validation_summary: dict) -> dict:
+        import json
         report = {
             "timestamp": datetime.now().isoformat(),
             "data_summary": validation_summary or {},
@@ -327,13 +343,13 @@ with DAG(
         os.makedirs(os.path.dirname(report_path), exist_ok=True)
         with open(report_path, "w") as f:
             json.dump(report, f, indent=2)
-        log.info(f"Saved performance report to {report_path}")
+        logger.info(f"Saved performance report to {report_path}")
         # optionally push to MLflow as artifact
         try:
             import mlflow
             mlflow.log_artifact(report_path, artifact_path="reports")
         except Exception as e:
-            log.warning(f"Failed to log performance report to MLflow: {e}")
+            logger.warning(f"Failed to log performance report to MLflow: {e}")
         return report
     
      # -------------------------
@@ -341,11 +357,13 @@ with DAG(
     # -------------------------
     @task(task_id="cleanup", trigger_rule=TriggerRule.ALL_DONE)
     def cleanup_task(temp_dir: str = DATA_DIR, artifact_dir: str = ARTIFACT_DIR):
+       
         # remove tmp directories safely
+        import shutil
         try:
             if os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir)
-                log.info(f"Removed data dir: {temp_dir}")
+                logger.info(f"Removed data dir: {temp_dir}")
         except Exception as e:
             log.warning(f"Cleanup data dir failed: {e}")
 
@@ -354,9 +372,9 @@ with DAG(
             temp_art = os.path.join(artifact_dir, "tmp")
             if os.path.exists(temp_art):
                 shutil.rmtree(temp_art)
-                log.info(f"Removed temp artifact dir: {temp_art}")
+                logger.info(f"Removed temp artifact dir: {temp_art}")
         except Exception as e:
-            log.warning(f"Cleanup artifacts failed: {e}")
+            logger.warning(f"Cleanup artifacts failed: {e}")
 
         return "cleanup_done"
 

@@ -38,5 +38,3 @@ holidays
 setuptools
 from_root
 
-
-astro-run-dag # This package is needed for the astro run command. It will be removed before a deploy

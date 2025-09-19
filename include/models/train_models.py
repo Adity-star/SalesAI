@@ -205,14 +205,12 @@ class ModelTrainer:
                     'tree_method': 'hist'  # faster training, GPU if available
                 }
 
-                pruning_callback = optuna.integration.XGBoostPruningCallback(trial, "validation_0-rmse")
 
                 model = xgb.XGBRegressor(**params, early_stopping_rounds=50)
                 model.fit(
                     X_train, y_train,
                     eval_set=[(X_val, y_val)],
                     verbose=False,
-                    callbacks=[pruning_callback]
                 )
                 y_pred = model.predict(X_val)
                 rmse = np.sqrt(mean_squared_error(y_val, y_pred))
@@ -234,7 +232,7 @@ class ModelTrainer:
         # Final model training with best params
         best_params.update({
             "random_state": 42,
-            "tree_method": "hist"  # switch to "gpu_hist" if GPU is available
+            "tree_method": "hist" 
         })
 
         model = xgb.XGBRegressor(**best_params, early_stopping_rounds=50)
@@ -247,7 +245,7 @@ class ModelTrainer:
         # Save trained model
         self.models['xgboost'] = model
         logger.info(f"Best iteration: {model.best_iteration}")
-
+        logger.info(f"XXXXXXXXXXXXXXXXXXXXXXXXXXx trained XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXx")
 
         return model
     
@@ -745,31 +743,38 @@ class ModelTrainer:
                     actual_data=test_df,
                     feature_importance_dict=feature_importance_dict if feature_importance_dict else None,
                     save_dir=temp_dir
-                )
+                    )
+                                    
                 
+                # Validate output
+                if not isinstance(saved_files, dict):
+                    logger.error(f"Expected dict from visualizer.create_comprehensive_report, got {type(saved_files)}: {saved_files}")
+                    raise TypeError("Invalid return type from create_comprehensive_report")
+
                 logger.info(f"Generated {len(saved_files)} visualization files")
-                
+
+
                 # Log files
                 for viz_name, file_path in saved_files.items():
                     if os.path.exists(file_path):
                         mlflow.log_artifact(file_path, "visualizations")
                         logger.info(f"Logged visualization: {viz_name}")
                     else:
-                        logger.warning(f"File not found: {file_path}")
+                        logger.warning(f"File not found: {file_path} for {viz_name}")
                 
-                # Save metrics JSON
+                    # Save metrics JSON
                 summary_file = os.path.join(temp_dir, "metrics_summary.json")
                 with open(summary_file, "w") as f:
                     json.dump(metrics_dict, f, indent=4)
                 mlflow.log_artifact(summary_file, "reports")
                 
                 # Combined HTML report
-                self._create_combined_html_report(saved_files, temp_dir)
+                self._create_combined_html_report(results, temp_dir)
                 combined_report = os.path.join(temp_dir, 'model_comparison_report.html')
                 if os.path.exists(combined_report):
                     mlflow.log_artifact(combined_report, "reports")
                     logger.info("Logged combined HTML report")
-                    
+                
         except Exception as e:
             logger.error(f"Failed to generate visualizations: {e}", exc_info=True)
 
@@ -1011,35 +1016,46 @@ class ModelTrainer:
         # Create a versioned folder
         version = version or datetime.now().strftime("%Y%m%d_%H%M%S")
         base_dir = f'/tmp/artifacts/{version}'
-        os.makedirs(base_dir, exist_ok=True)
+        try:
+            os.makedirs(base_dir, exist_ok=True)
 
-        # Save preprocessing objects
-        joblib.dump(self.scalers, os.path.join(base_dir, 'scalers.pkl'))
-        joblib.dump(self.encoders, os.path.join(base_dir, 'encoders.pkl'))
-        joblib.dump(self.feature_cols, os.path.join(base_dir, 'feature_cols.pkl'))
+            # Save preprocessing objects
+            joblib.dump(self.scalers, os.path.join(base_dir, 'scalers.pkl'))
+            joblib.dump(self.encoders, os.path.join(base_dir, 'encoders.pkl'))
+            joblib.dump(self.feature_cols, os.path.join(base_dir, 'feature_cols.pkl'))
 
-        # Save model directories
-        model_dirs = {
-            'xgboost': os.path.join(base_dir, 'models/xgboost'),
-            'lightgbm': os.path.join(base_dir, 'models/lightgbm'),
-            'ensemble': os.path.join(base_dir, 'models/ensemble')
-        }
+            # Save model directories
+            model_dirs = {
+                'xgboost': os.path.join(base_dir, 'models/xgboost'),
+                'lightgbm': os.path.join(base_dir, 'models/lightgbm'),
+                'ensemble': os.path.join(base_dir, 'models/ensemble')
+            }
 
-        for mname, mdir in model_dirs.items():
-            os.makedirs(mdir, exist_ok=True)
-            if mname in self.models:
-                joblib.dump(self.models[mname], os.path.join(mdir, f"{mname}_model.pkl"))
+            for mname, mdir in model_dirs.items():
+                os.makedirs(mdir, exist_ok=True)
+                if mname in self.models:
+                    model = self.models[mname]
+                    joblib.dump(model, os.path.join(mdir, f"{mname}_model.pkl"))
+                    logger.info(f"Saved model: {mname} -> {mdir}")
 
-        # Save metadata for reproducibility
-        metadata = {
-            "version": version,
-            "timestamp": datetime.now().isoformat(),
-            "models_saved": list(self.models.keys()),
-            "feature_count": len(self.feature_cols),
-        }
-        joblib.dump(metadata, os.path.join(base_dir, 'metadata.pkl'))
+            # Save metadata for reproducibility
+            metadata = {
+                "version": version,
+                "timestamp": datetime.now().isoformat(),
+                "models_saved": list(self.models.keys()),
+                "feature_count": len(self.feature_cols),
+            }
+            joblib.dump(metadata, os.path.join(base_dir, 'metadata.pkl'))
+            logger.info("Saved metadata.")
 
-        # Log to MLflow
-        self.mlflow_manager.log_artifacts(base_dir)
+            # Log artifacts to MLflow
+            if hasattr(self, "mlflow_manager"):
+                self.mlflow_manager.log_artifacts(base_dir)
+                logger.info("Artifacts logged to MLflow.")
+            else:
+                logger.warning("mlflow_manager not found. Skipping MLflow logging.")
 
-        logger.info(f"Artifacts saved successfully in {base_dir}")
+            logger.info(f"✅ Artifacts saved successfully in {base_dir}")
+
+        except Exception as e:
+            logger.error(f"❌ Failed to save artifacts: {e}", exc_info=True)

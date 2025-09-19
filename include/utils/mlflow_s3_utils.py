@@ -33,20 +33,25 @@ class MLflowS3Manager:
             region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1')
         )
 
-    def _build_s3_key(self, run_id: str, local_path: str, artifact_path: Optional[str] = None) -> str:
+    def _build_s3_key(self, run_id: str, relative_path: str, artifact_path: Optional[str] = None) -> str:
         """
-        Construct S3 object key from run ID and local file path
+        Construct S3 object key from run ID and relative path inside artifacts.
         """
         base = f"{run_id[:2]}/{run_id[2:4]}/{run_id}/artifacts"
-        rel_path = f"{artifact_path}/{os.path.basename(local_path)}" if artifact_path else os.path.basename(local_path)
-        return f"{base}/{rel_path}".replace("//", "/")
+        if artifact_path:
+            key = os.path.join(base, artifact_path, relative_path)
+        else:
+            key = os.path.join(base, relative_path)
+        return key.replace("\\", "/")  
+
 
     def upload_artifact_to_s3(self, local_path: str, run_id: str, artifact_path: Optional[str] = None) -> str:
         """
-        Upload a single file to S3
+        Upload a single file to S3.
         """
         try:
-            s3_key = self._build_s3_key(run_id, local_path, artifact_path)
+            filename = os.path.basename(local_path)
+            s3_key = self._build_s3_key(run_id, filename, artifact_path)
             self.s3_client.upload_file(local_path, self.bucket_name, s3_key)
             logger.info(f"Uploaded {local_path} to s3://{self.bucket_name}/{s3_key}")
             return s3_key
@@ -54,25 +59,48 @@ class MLflowS3Manager:
             logger.error(f"Upload failed for {local_path}: {e}\n{traceback.format_exc()}")
             raise
 
-    def log_artifact_with_s3(self, local_path: str, artifact_path: Optional[str] = None):
+
+    def log_artifacts(self, local_path: str, artifact_path: Optional[str] = None):
         """
-        Log to MLflow and then upload to S3 explicitly
+        Log local file or directory to MLflow and upload to S3.
         """
         try:
-            if artifact_path:
+            if os.path.isfile(local_path):
                 mlflow.log_artifact(local_path, artifact_path)
+            elif os.path.isdir(local_path):
+                mlflow.log_artifacts(local_path, artifact_path)
             else:
-                mlflow.log_artifact(local_path)
+                logger.error(f"Path does not exist or is not a file/directory: {local_path}")
+                return
 
             run = mlflow.active_run()
-            if run:
-                self.upload_artifact_to_s3(local_path, run.info.run_id, artifact_path)
+            if not run:
+                logger.warning("No active MLflow run. Skipping S3 upload.")
+                return
+
+            run_id = run.info.run_id
+
+            if os.path.isfile(local_path):
+                self.upload_artifact_to_s3(local_path, run_id, artifact_path)
+            else:
+                # For directories, recursively upload files
+                base_path = local_path
+                for root, _, files in os.walk(base_path):
+                    for file in files:
+                        full_path = os.path.join(root, file)
+                        relative_path = os.path.relpath(full_path, base_path)
+                        s3_key = self._build_s3_key(run_id, relative_path, artifact_path)
+                        self.s3_client.upload_file(full_path, self.bucket_name, s3_key)
+                        logger.info(f"Uploaded {full_path} to s3://{self.bucket_name}/{s3_key}")
         except Exception as e:
             logger.error(f"Failed to log artifact and sync: {e}\n{traceback.format_exc()}")
 
+    except Exception as e:
+        logger.error(f"Failed to log artifact and sync: {e}\n{traceback.format_exc()}")
+
     def sync_mlflow_artifacts_to_s3(self, run_id: str):
         """
-        Recursively upload all local artifacts from a given MLflow run to S3
+        Recursively upload all local artifacts from a given MLflow run to S3.
         """
         try:
             client = mlflow.tracking.MlflowClient()
@@ -98,6 +126,7 @@ class MLflowS3Manager:
         except Exception as e:
             logger.error(f"Artifact sync failed for run {run_id}: {e}\n{traceback.format_exc()}")
             raise
+
 
     def list_s3_artifacts(self, run_id: str) -> List[str]:
         """

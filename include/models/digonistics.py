@@ -59,6 +59,12 @@ def diagnose_model_performance(train_df: pd.DataFrame,
 
     # 3. Prediction Analysis
     logger.info("Analyzing predictions...")
+
+    with np.errstate(divide='ignore', invalid='ignore'):
+        mape = np.abs(residuals / y_test.replace(0, np.nan)) * 100
+        mape = mape[~np.isnan(mape)]
+        mape_value = float(np.mean(mape)) if len(mape) > 0 else None
+
     for model_name, pred in predictions.items():
         if pred is not None:
             residuals = y_test - pred
@@ -67,7 +73,7 @@ def diagnose_model_performance(train_df: pd.DataFrame,
                 'pred_std': float(pred.std()),
                 'residual_mean': float(residuals.mean()),
                 'residual_std': float(residuals.std()),
-                'mape': float(np.mean(np.abs(residuals / y_test)) * 100),
+                'mape': mape_value,
                 'extreme_low_count': int((pred < y_test.min() * 0.5).sum()),
                 'extreme_high_count': int((pred > y_test.max() * 1.5).sum())
             }
