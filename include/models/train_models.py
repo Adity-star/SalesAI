@@ -487,7 +487,8 @@ class ModelTrainer:
             results['xgboost'] = {
                 'model': xgb_model,
                 'metrics': xgb_metrics,
-                'predictions': xgb_pred
+                'predictions': xgb_pred,
+                'actual': y_test
             }
             
             # Train LightGBM
@@ -510,7 +511,8 @@ class ModelTrainer:
             results['lightgbm'] = {
                 'model': lgb_model,
                 'metrics': lgb_metrics,
-                'predictions': lgb_pred
+                'predictions': lgb_pred,
+                'actual': y_test
             }
 
             # ------------------------
@@ -542,7 +544,8 @@ class ModelTrainer:
                     results['prophet'] = {
                         'model': prophet_model,
                         'metrics': prophet_metrics,
-                        'predictions': prophet_pred
+                        'predictions': prophet_pred,
+                        'actual':y_test
                     }
                     
                     # Ensemble predictions with all three models
@@ -614,8 +617,11 @@ class ModelTrainer:
             results['ensemble'] = {
                 'model': ensemble_model,
                 'metrics': ensemble_metrics,
-                'predictions': ensemble_pred
+                'predictions': ensemble_pred,
+                'actual':y_test
             }
+
+            logger.info(f"Sucessfully logged models with : {results}")
 
 
             logger.info("Running diagnostics & visualizations...")
@@ -762,12 +768,13 @@ class ModelTrainer:
                     else:
                         logger.warning(f"File not found: {file_path} for {viz_name}")
                 
-                    # Save metrics JSON
+                # Save metrics JSON
                 summary_file = os.path.join(temp_dir, "metrics_summary.json")
                 with open(summary_file, "w") as f:
                     json.dump(metrics_dict, f, indent=4)
                 mlflow.log_artifact(summary_file, "reports")
                 
+
                 # Combined HTML report
                 self._create_combined_html_report(results, temp_dir)
                 combined_report = os.path.join(temp_dir, 'model_comparison_report.html')
@@ -801,7 +808,7 @@ class ModelTrainer:
             if "predictions" in res:
                 df = res["actual"].copy()
                 df["prediction"] = res["predictions"]
-                df["residual"] = df["sales"] - df["prediction"]
+                df["residual"] = df["actual"] - df["prediction"]
                 predictions_export[model_name] = df.to_csv(index=False)
 
         # =========================

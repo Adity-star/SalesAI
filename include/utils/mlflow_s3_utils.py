@@ -95,8 +95,6 @@ class MLflowS3Manager:
         except Exception as e:
             logger.error(f"Failed to log artifact and sync: {e}\n{traceback.format_exc()}")
 
-    except Exception as e:
-        logger.error(f"Failed to log artifact and sync: {e}\n{traceback.format_exc()}")
 
     def sync_mlflow_artifacts_to_s3(self, run_id: str):
         """
@@ -105,8 +103,11 @@ class MLflowS3Manager:
         try:
             client = mlflow.tracking.MlflowClient()
             local_dir = f"/tmp/mlflow_sync/{run_id}"
+            # Remove if exists
             if os.path.exists(local_dir):
                 shutil.rmtree(local_dir)
+            # Create directory before download
+            os.makedirs(local_dir, exist_ok=True)
 
             logger.info(f"Downloading artifacts for run {run_id}")
             artifacts_dir = client.download_artifacts(run_id, "", dst_path=local_dir)

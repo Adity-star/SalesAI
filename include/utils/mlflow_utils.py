@@ -144,7 +144,7 @@ class MLflowManager:
             # Don't fail the entire run, just log the error
     
     def log_artifacts(self, artifact_path: str):
-
+        artifact_subdir = "reports"
         if not os.path.exists(artifact_path):
             logger.error(f"Artifact path does not exist: {artifact_path}")
             return

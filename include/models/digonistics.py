@@ -60,14 +60,20 @@ def diagnose_model_performance(train_df: pd.DataFrame,
     # 3. Prediction Analysis
     logger.info("Analyzing predictions...")
 
-    with np.errstate(divide='ignore', invalid='ignore'):
-        mape = np.abs(residuals / y_test.replace(0, np.nan)) * 100
-        mape = mape[~np.isnan(mape)]
-        mape_value = float(np.mean(mape)) if len(mape) > 0 else None
+    
+
+    diagnosis['prediction_analysis'] = {}
+    residuals = None  
 
     for model_name, pred in predictions.items():
         if pred is not None:
             residuals = y_test - pred
+
+            with np.errstate(divide='ignore', invalid='ignore'):
+                mape = np.abs(residuals / y_test.replace(0, np.nan)) * 100
+                mape = mape[~np.isnan(mape)]
+                mape_value = float(np.mean(mape)) if len(mape) > 0 else None
+
             diagnosis['prediction_analysis'][model_name] = {
                 'pred_mean': float(pred.mean()),
                 'pred_std': float(pred.std()),
@@ -77,6 +83,10 @@ def diagnose_model_performance(train_df: pd.DataFrame,
                 'extreme_low_count': int((pred < y_test.min() * 0.5).sum()),
                 'extreme_high_count': int((pred > y_test.max() * 1.5).sum())
             }
+
+    if residuals is None:
+        logger.warning("No valid predictions to compute residuals.")
+
 
     # 4. Feature Importance Check
     feature_cols = [c for c in train_df.columns if c not in [target_col, 'date']]

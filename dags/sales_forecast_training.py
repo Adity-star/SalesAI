@@ -61,7 +61,7 @@ with DAG(
 
         os.makedirs(data_dir, exist_ok=True)
 
-        generator = SyntheticDataGenerator(start_date="2023-01-01", end_date="2023-01-30")
+        generator = SyntheticDataGenerator(start_date="2023-01-01", end_date="2023-01-21")
         file_paths = generator.generate_sales_data(output_dir=data_dir)
 
         total_files = sum(len(paths) for paths in file_paths.values())
@@ -174,6 +174,7 @@ with DAG(
             daily_sales = daily_sales.merge(
                 traffic_summary, on=["date", "store_id"], how="left"
             )
+            
         logger.info(f"Final training data shape: {daily_sales.shape}")
         logger.info(f"Columns: {daily_sales.columns.tolist()}")
         trainer = ModelTrainer()
@@ -281,7 +282,7 @@ with DAG(
             return True
         approval = Variable.get(APPROVAL_VAR, "false").lower() == "true"
         if approval:
-            log.info(f"Approval variable {APPROVAL_VAR} is true -> proceed with promotion.")
+            logger.info(f"Approval variable {APPROVAL_VAR} is true -> proceed with promotion.")
             return True
         logger.info(f"Approval missing. Set Airflow Variable '{APPROVAL_VAR}' to 'true' to promote models.")
         return False
@@ -365,7 +366,7 @@ with DAG(
                 shutil.rmtree(temp_dir)
                 logger.info(f"Removed data dir: {temp_dir}")
         except Exception as e:
-            log.warning(f"Cleanup data dir failed: {e}")
+            logger.warning(f"Cleanup data dir failed: {e}")
 
         try:
             # optionally keep artifacts, but remove temporary intermediate dirs
