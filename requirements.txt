@@ -28,6 +28,7 @@ seaborn
 
 pymongo
 
+requests
 pytest
 python-dotenv
 pyyaml

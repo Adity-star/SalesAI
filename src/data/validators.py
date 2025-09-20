@@ -18,7 +18,7 @@ from typing import Tuple, List, Dict, Any
 logger = logging.getLogger(__name__)
 
 class DataValidator:
-    def __init__(self, config_path: str = r'C:\Users\Administrator\OneDrive\Desktop\SalesAI\include\config\data_validation_config.yaml'):
+    def __init__(self, config_path: str = r'C:\Users\Administrator\OneDrive\Desktop\SalesAI\src\config\data_validation_config.yaml'):
         with open(config_path, "r") as f:
             self.config = yaml.safe_load(f)
 
@@ -197,3 +197,5 @@ def validate_prediction_data(self, df: pd.DataFrame, training_stats: Dict[str, A
                 logger.warning(msg)
 
     return len(errors) == 0, errors
+
+

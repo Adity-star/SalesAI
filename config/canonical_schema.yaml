@@ -1,0 +1,41 @@
+fields:
+  - name: date
+    type: datetime
+    format: "%Y-%m-%d"
+
+  - name: store_id
+    type: string
+
+  - name: product_id
+    type: string
+
+  - name: category
+    type: string
+
+  - name: quantity_sold
+    type: integer
+
+  - name: unit_price
+    type: float
+
+  - name: discount_percent
+    type: float
+
+  - name: revenue
+    type: float
+
+  - name: cost
+    type: float
+
+  - name: profit
+    type: float
+
+external_fields:
+  - name: customer_traffic
+    type: integer
+
+  - name: weather_impact
+    type: float
+
+  - name: is_holiday
+    type: integer  # 0 or 1

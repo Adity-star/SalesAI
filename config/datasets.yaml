@@ -1,0 +1,43 @@
+datasets:
+  - name: favorita
+    path: data/raw/favorita/original/favorita_sales.csv
+    mapping:
+      date: 'date_column_in_favorita'
+      store_id: 'store_id_column'
+      item_id: 'sku'
+      sales: 'sales_amount'
+      promotion: 'promo_flag'
+      price: 'price'
+    external_fields:
+      holiday: 'is_holiday'
+      weather_temp: 'temp'
+      weather_precip: 'precip'
+
+  - name: rossmann
+    path: data/raw/rossmann/original/rossmann_sales.csv
+    mapping:
+      date: 'Date'
+      store_id: 'Store'
+      item_id: 'Item'
+      sales: 'Sales'
+      promotion: 'Promo'
+      price: 'Price'
+    external_fields:
+      holiday: 'Holiday'
+      weather_temp: 'Temperature'
+      weather_precip: 'Rainfall'
+
+  # Template to add more datasets
+  - name: [your_dataset_name_here]
+    path: [path/to/your/file.csv]
+    mapping:
+      date: [raw_column_name]
+      store_id: [raw_column_name]
+      item_id: [raw_column_name]
+      sales: [raw_column_name]
+      promotion: [raw_column_name]
+      price: [raw_column_name]
+    external_fields:
+      holiday: [optional_holiday_column]
+      weather_temp: [optional_weather_column]
+      weather_precip: [optional_precip_column]

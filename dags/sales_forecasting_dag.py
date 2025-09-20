@@ -122,12 +122,12 @@ with DAG(
     # -------------------------
     @task(task_id="register_best_models")
     def register_best_models_wrapper(evaluation_result: dict) -> dict:
-        from tasks.training_tasks import register_best_models
+        from tasks.model_deployement_tasks import register_best_models
         return register_best_models(evaluation_result=evaluation_result)
 
     @task(task_id="transition_to_production")
     def transition_to_production_wrapper(registration_result: dict) -> str:
-        from tasks.training_tasks import transition_to_production
+        from tasks.model_deployement_tasks import transition_to_production
         return transition_to_production(registration_result=registration_result)
 
     # -------------------------
@@ -135,7 +135,7 @@ with DAG(
     # -------------------------
     @task(task_id="generate_performance_report")
     def generate_report_wrapper(training_result: dict, validation_summary: dict) -> dict:
-        from tasks.training_tasks import generate_performance_report
+        from tasks.model_deployement_tasks import generate_performance_report
         return generate_performance_report(training_result=training_result, validation_summary=validation_summary)
 
     # -------------------------
@@ -143,7 +143,7 @@ with DAG(
     # -------------------------
     @task(task_id="cleanup", trigger_rule=TriggerRule.ALL_DONE)
     def cleanup_wrapper(temp_dir: str = DATA_DIR, artifact_dir: str = ARTIFACT_DIR) -> str:
-        from tasks.training_tasks import cleanup
+        from tasks.model_deployement_tasks import cleanup
         return cleanup(temp_dir=temp_dir, artifact_dir=artifact_dir)
     
 

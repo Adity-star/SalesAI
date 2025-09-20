@@ -660,7 +660,7 @@ class ModelTrainer:
             self.mlflow_manager.end_run()
             
             # Sync artifacts to S3
-            from utils.mlflow_s3_utils import MLflowS3Manager
+            from src.utils.mlflow_s3_utils import MLflowS3Manager
             
             logger.info("Syncing artifacts to S3...")
             try:
@@ -788,230 +788,88 @@ class ModelTrainer:
             logger.error(f"Failed to generate visualizations: {e}", exc_info=True)
 
 
-    def _create_combined_html_report(self, results: Dict[str, Any], save_dir: str) -> None:
-        """Create an interactive dashboard-like HTML report with Plotly"""
+    def _create_combined_html_report(self, saved_files: Dict[str, str], save_dir: str) -> None:
+        """Create a combined HTML report with all visualizations"""
         import os
         from datetime import datetime
-        import plotly.graph_objects as go
-        import plotly.express as px
-        import pandas as pd
-        import json
-
-        html_file = os.path.join(save_dir, "model_comparison_report.html")
-
-        # =========================
-        #  Collect Data
-        # =========================
-        metrics_df = pd.DataFrame({m: res["metrics"] for m, res in results.items() if "metrics" in res}).T
-        metrics_csv = metrics_df.to_csv(index=True)
-
-        predictions_export = {}
-        for model_name, res in results.items():
-            if "predictions" in res:
-                df = res["actual"].copy()
-                df["prediction"] = res["predictions"]
-                df["residual"] = df["actual"] - df["prediction"]
-                predictions_export[model_name] = df.to_csv(index=False)
-
-        # =========================
-        #  HTML Header
-        # =========================
-        with open(html_file, "w") as f:
-            f.write(f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Interactive Model Comparison Dashboard</title>
-                <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-                <style>
-                    body {{
-                        font-family: Arial, sans-serif;
-                        margin: 0;
-                        background-color: #f5f5f5;
-                    }}
-                    header {{
-                        background: #2c3e50;
-                        color: white;
-                        padding: 15px;
-                        text-align: center;
-                    }}
-                    .section {{
-                        background-color: white;
-                        padding: 20px;
-                        margin: 20px;
-                        border-radius: 8px;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                    }}
-                    .download-btn {{
-                        background: #3498db;
-                        color: white;
-                        padding: 6px 12px;
-                        border: none;
-                        border-radius: 4px;
-                        cursor: pointer;
-                        margin: 5px 0;
-                    }}
-                    .timestamp {{
-                        color: #aaa;
-                        font-size: 12px;
-                    }}
-                </style>
-            </head>
-            <body>
-                <header>
-                    <h1>Sales Forecast Model Comparison Dashboard</h1>
-                    <p class="timestamp">Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-                </header>
-            """)
-
-        # =========================
-        # 1. Metrics Comparison
-        # =========================
-        fig = px.bar(
-            metrics_df.reset_index().melt(id_vars="index"),
-            x="variable", y="value", color="index", barmode="group",
-            labels={"index": "Model", "variable": "Metric", "value": "Score"},
-            title="Metrics Comparison"
-        )
-        metrics_html = fig.to_html(full_html=False, include_plotlyjs=False)
-
-        with open(html_file, "a") as f:
-            f.write(f"""
-            <div class="section">
-                <h2>Model Performance Metrics</h2>
-                <button class="download-btn" onclick="downloadCSV(metrics_csv, 'metrics.csv')">📥 Download Metrics CSV</button>
-                {metrics_html}
-            </div>
-            """)
-
-        # =========================
-        # 2. Predictions vs Actual
-        # =========================
-        fig = go.Figure()
-        added_actual = False
-        for model_name, res in results.items():
-            if "predictions" in res:
-                if not added_actual:
-                    fig.add_trace(go.Scatter(
-                        x=res["actual"]["date"], y=res["actual"]["sales"],
-                        mode="lines+markers", name="Actual", line=dict(color="black")
-                    ))
-                    added_actual = True
-                fig.add_trace(go.Scatter(
-                    x=res["actual"]["date"], y=res["predictions"],
-                    mode="lines", name=f"{model_name} Predictions"
-                ))
-        fig.update_layout(title="Predictions vs Actual", xaxis_title="Date", yaxis_title="Sales")
-
-        with open(html_file, "a") as f:
-            f.write(f"""
-            <div class="section">
-                <h2>Predictions Comparison</h2>
-            """)
-
-            for model_name, csv_text in predictions_export.items():
-                f.write(f"""
-                    <button class="download-btn" onclick="downloadCSV(preds_csv['{model_name}'], '{model_name}_predictions.csv')">
-                    📥 Download {model_name} Predictions
-                    </button>
-                """)
-
-            f.write(fig.to_html(full_html=False, include_plotlyjs=False))
-            f.write("</div>")
-
-        # =========================
-        # 3. Residuals Analysis
-        # =========================
-        fig = go.Figure()
-        for model_name, res in results.items():
-            if "predictions" in res:
-                residuals = res["actual"]["sales"].values - res["predictions"]
-                fig.add_trace(go.Scatter(
-                    x=res["actual"]["date"], y=residuals,
-                    mode="lines+markers", name=f"{model_name} Residuals"
-                ))
-        fig.update_layout(title="Residuals Over Time", xaxis_title="Date", yaxis_title="Residual")
-
-        with open(html_file, "a") as f:
-            f.write(f"""
-            <div class="section">
-                <h2>Residuals Analysis</h2>
-                {fig.to_html(full_html=False, include_plotlyjs=False)}
-            </div>
-            """)
-
-        # =========================
-        # 4. Error Distribution
-        # =========================
-        fig = go.Figure()
-        for model_name, res in results.items():
-            if "predictions" in res:
-                residuals = res["actual"]["sales"].values - res["predictions"]
-                fig.add_trace(go.Histogram(
-                    x=residuals, name=f"{model_name} Errors", opacity=0.6
-                ))
-        fig.update_layout(
-            barmode="overlay", title="Error Distribution",
-            xaxis_title="Error", yaxis_title="Count"
-        )
-
-        with open(html_file, "a") as f:
-            f.write(f"""
-            <div class="section">
-                <h2>Error Distribution</h2>
-                {fig.to_html(full_html=False, include_plotlyjs=False)}
-            </div>
-            """)
-
-        # =========================
-        # 5. Feature Importance
-        # =========================
-        for model_name, res in results.items():
-            if "model" in res and hasattr(res["model"], "feature_importances_"):
-                importance_df = pd.DataFrame({
-                    "feature": self.feature_cols,
-                    "importance": res["model"].feature_importances_
-                }).sort_values("importance", ascending=False)
-
-                fig = px.bar(
-                    importance_df, x="importance", y="feature", orientation="h",
-                    title=f"Feature Importance ({model_name})"
-                )
-
-                with open(html_file, "a") as f:
-                    f.write(f"""
-                    <div class="section">
-                        <h2>Feature Importance - {model_name}</h2>
-                        {fig.to_html(full_html=False, include_plotlyjs=False)}
-                    </div>
-                    """)
-
-        # =========================
-        # Add CSV export scripts
-        # =========================
-        preds_json = json.dumps(predictions_export)
-        with open(html_file, "a") as f:
-            f.write(f"""
-            <script>
-                var metrics_csv = `{metrics_csv}`;
-                var preds_csv = {json.dumps(predictions_export)};
-
-                function downloadCSV(csvContent, filename) {{
-                    var blob = new Blob([csvContent], {{ type: 'text/csv;charset=utf-8;' }});
-                    var link = document.createElement("a");
-                    if (link.download !== undefined) {{
-                        var url = URL.createObjectURL(blob);
-                        link.setAttribute("href", url);
-                        link.setAttribute("download", filename);
-                        link.style.visibility = "hidden";
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-                    }}
-                }}
-            </script>
-            </body></html>
-            """)
+        
+        html_content = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Model Comparison Report</title>
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    margin: 20px;
+                    background-color: #f5f5f5;
+                }
+                h1, h2 {
+                    color: #333;
+                }
+                .section {
+                    background-color: white;
+                    padding: 20px;
+                    margin-bottom: 20px;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                }
+                .timestamp {
+                    color: #666;
+                    font-size: 14px;
+                }
+                iframe {
+                    width: 100%;
+                    height: 800px;
+                    border: 1px solid #ddd;
+                    border-radius: 4px;
+                    margin-top: 10px;
+                }
+                img {
+                    max-width: 100%;
+                    height: auto;
+                    border-radius: 4px;
+                    margin-top: 10px;
+                }
+            </style>
+        </head>
+        <body>
+            <h1>Sales Forecast Model Comparison Report</h1>
+            <p class="timestamp">Generated on: {timestamp}</p>
+        """
+        
+        html_content = html_content.format(timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        
+        # Add each visualization section
+        sections = [
+            ('metrics_comparison', 'Model Performance Metrics'),
+            ('predictions_comparison', 'Predictions Comparison'),
+            ('residuals_analysis', 'Residuals Analysis'),
+            ('error_distribution', 'Error Distribution'),
+            ('feature_importance', 'Feature Importance'),
+            ('summary', 'Summary Statistics')
+        ]
+        
+        for key, title in sections:
+            if key in saved_files:
+                html_content += f'<div class="section"><h2>{title}</h2>'
+                
+                # All files are now PNG - base64 encode them
+                import base64
+                with open(saved_files[key], 'rb') as f:
+                    img_data = base64.b64encode(f.read()).decode()
+                html_content += f'<img src="data:image/png;base64,{img_data}" alt="{title}">'
+                
+                html_content += '</div>'
+        
+        html_content += """
+        </body>
+        </html>
+        """
+        
+        # Save the combined report
+        with open(os.path.join(save_dir, 'model_comparison_report.html'), 'w') as f:
+            f.write(html_content)
 
     def save_artifacts(self, version: str = None):
         """

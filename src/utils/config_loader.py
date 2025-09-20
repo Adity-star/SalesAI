@@ -30,3 +30,9 @@ def load_config(filename: str = "ml_config.yaml") -> dict:
 
     with open(config_path, "r") as f:
         return yaml.safe_load(f)
+
+
+def load_yaml(path: str):
+    p = Path(path)
+    with p.open('r') as f:
+        return yaml.safe_load(f)

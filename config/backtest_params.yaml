@@ -1,0 +1,34 @@
+# Backtesting Configuration
+
+# Forecast horizons in days (how far ahead to predict)
+horizons: [7, 14, 28, 90]
+
+# Step size in days (how often to roll forward)
+step: 7
+
+# Minimum number of days to use for training before first forecast
+initial_train_period_days: 365  # Use 1 year of data before first forecast
+
+# Optional: Define max test period to avoid using future unseen data
+max_test_period_days: 180       # Prevents excessive drift
+
+# Strategy: Expanding or sliding window
+strategy: "expanding"           # or "sliding" for fixed window size
+
+# Evaluation metrics (can match training section)
+metrics:
+  - rmse
+  - mae
+  - mape
+  - r2
+
+# Parallelization (optional)
+parallel: true
+n_jobs: -1                      # Use all CPU cores
+
+# Save intermediate results (optional)
+save_predictions: true
+save_path: results/backtests/
+
+# Visualization (optional)
+generate_plots: true
