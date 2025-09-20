@@ -21,6 +21,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from sklearn.linear_model import Ridge
 
+from src.utils.config_loader import load_config, get_config_path
 from src.utils.mlflow_utils import MLflowManager
 from src.features.feature_pipeline import FeaturePipeline
 from src.data.validators import DataValidator
@@ -35,9 +36,10 @@ from src.logger import logger
 
 logger = logging.getLogger(__name__)
 
+config_path = get_config_path()
 
 class ModelTrainer:
-    def __init__(self, config_path: str =os.path.join(os.path.dirname(__file__), "..", "config", "ml_config.yaml")):
+    def __init__(self, config_path: str =config_path):
         with open(config_path, "r") as f:
             self.config = yaml.safe_load(f)
         self.model_config = self.config['models']

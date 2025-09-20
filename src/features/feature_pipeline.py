@@ -5,29 +5,24 @@ import pandas as pd
 import holidays
 from datetime import datetime
 from typing import List, Dict, Tuple, Optional
-    
-from typing import List, Optional
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import LabelEncoder
-from  from_root import from_root
 import logging
+
 from src.logger import logger
+from src.utils.config_loader import load_config
 
 logger = logging.getLogger(__name__)
 
-# from from_root import from_root
-config_path = os.path.join(from_root(), "include", "config", "ml_config.yaml")
 
-
+# Load config using the centralized loader
 try:
-
-    with open(config_path, "r") as f:
-        config = yaml.safe_load(f)
+    config = load_config()
     features_cfg = config.get("features", {})
     holiday_cfg = config.get("holiday", {})
-    logger.info("Config loaded successfully.")
+    logger.info("✅ Config loaded successfully using config_loader")
 except Exception as e:
-    logger.error(f"Failed to load config at {config_path}: {e}")
+    logger.error(f"❌ Failed to load config: {e}")
     raise
 
 

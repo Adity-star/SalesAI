@@ -1,8 +1,6 @@
 import os
 import mlflow
-import mlflow.sklearn
-import mlflow.xgboost
-import mlflow.lightgbm
+
 import mlflow.pyfunc
 from mlflow.tracking import MlflowClient
 from typing import Dict, Any, Optional, List
@@ -14,18 +12,30 @@ import logging
 import joblib
 from src.utils.service_discovery import get_mlflow_endpoint, get_minio_endpoint
 from src.logger import logger
-
+from src.utils.config_loader import load_config, get_config_path
 logger = logging.getLogger(__name__)
 
 
 class MLflowManager:
-    def __init__(self, config_path: str = "/usr/local/airflow/include/config/ml_config.yaml"):
-        with open(config_path, 'r') as f:
-            self.config = yaml.safe_load(f)
+    def __init__(self, config_path: str = None):
+
+        """
+        Initialize MLflowManager with config loaded from src/config or given filename.
+        Sets up MLflow tracking URI, experiment, MinIO config, and MlflowClient.
+        """
+        if config_path is None:
+            config_path = get_config_path()
         
+        if not os.path.exists(config_path):
+            logger.error(f"Config file not found at {config_path}")
+            raise FileNotFoundError(f"Missing config: {config_path}")
+
+        # Use load_config to load YAML config as dict
+        self.config = load_config(filename=config_path.name)
+
         mlflow_config = self.config['mlflow']
 
-         # Use service discovery to get tracking URI with debug logging
+        # Use service discovery to get tracking URI
         self.tracking_uri = None
         try:
             self.tracking_uri = get_mlflow_endpoint()
@@ -36,31 +46,29 @@ class MLflowManager:
         if not self.tracking_uri:
             self.tracking_uri = "http://localhost:5001"
             logger.warning(f"Falling back to default MLflow tracking URI: {self.tracking_uri}")
-        
+
         self.experiment_name = mlflow_config['experiment_name']
         self.registry_name = mlflow_config['registry_name']
 
         mlflow.set_tracking_uri(self.tracking_uri)
         logger.debug(f"MLflow tracking URI set to {self.tracking_uri}")
-        
-        # Try to set experiment with fallback and detailed logging
+
+        # Set experiment
         try:
             mlflow.set_experiment(self.experiment_name)
             logger.info(f"Set MLflow experiment: {self.experiment_name}")
         except Exception as e:
             logger.warning(f"Failed to set experiment {self.experiment_name} on {self.tracking_uri}: {e}")
-            if 'mlflow' in self.tracking_uri:
-                self.tracking_uri = "http://localhost:5001"
-                mlflow.set_tracking_uri(self.tracking_uri)
-                os.environ['MLFLOW_TRACKING_URI'] = self.tracking_uri
-                logger.info(f"Retrying MLflow set_experiment with fallback URI: {self.tracking_uri}")
-                try:
-                    mlflow.set_experiment(self.experiment_name)
-                    logger.info(f"Set MLflow experiment after fallback: {self.experiment_name}")
-                except Exception as e2:
-                    logger.error(f"Failed to connect to MLflow with fallback URI: {e2}")
-        
-        # Configure MinIO S3 endpoint with debug info
+            self.tracking_uri = "http://localhost:5001"
+            mlflow.set_tracking_uri(self.tracking_uri)
+            os.environ['MLFLOW_TRACKING_URI'] = self.tracking_uri
+            try:
+                mlflow.set_experiment(self.experiment_name)
+                logger.info(f"Set MLflow experiment after fallback: {self.experiment_name}")
+            except Exception as e2:
+                logger.error(f"Failed to connect to MLflow with fallback URI: {e2}")
+
+        # Configure MinIO
         try:
             minio_endpoint = get_minio_endpoint()
             os.environ['MLFLOW_S3_ENDPOINT_URL'] = minio_endpoint
@@ -70,17 +78,15 @@ class MLflowManager:
             os.environ['MLFLOW_S3_ENDPOINT_URL'] = "http://localhost:9000"
             logger.info("Falling back to default MinIO endpoint: http://localhost:9000")
 
-       # Set AWS credentials from env or defaults
         os.environ['AWS_ACCESS_KEY_ID'] = os.getenv('AWS_ACCESS_KEY_ID', 'minioadmin')
         os.environ['AWS_SECRET_ACCESS_KEY'] = os.getenv('AWS_SECRET_ACCESS_KEY', 'minioadmin')
 
-        # Create MLflow client with debug info
         try:
             self.client = MlflowClient(tracking_uri=self.tracking_uri)
             logger.debug("Initialized MlflowClient successfully")
         except Exception as e:
             logger.error(f"Failed to initialize MlflowClient: {e}")
-        
+
     def start_run(self, run_name: Optional[str] = None, tags: Optional[Dict[str, str]] = None) -> str:
         if run_name is None:
             run_name = f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -141,7 +147,6 @@ class MLflowManager:
 
         except Exception as e:
             logger.error(f"Failed to log model {model_name}: {e}")
-            # Don't fail the entire run, just log the error
     
     def log_artifacts(self, artifact_path: str):
         artifact_subdir = "reports"

@@ -150,8 +150,9 @@ with DAG(
     # -------------------------
     # DAG wiring
     # -------------------------
-    extract_result = extract_data_task()
-    validation_summary = validate_data_task(extract_result)
+    extract_result = extract_data_wrapper()
+    validation_summary = validate_data_wrapper(extract_result)
+
     training_result = prepare_and_train_wrapper(extract_result, validation_summary)
     evaluation_result = evaluate_models_wrapper(training_result)
 
