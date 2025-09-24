@@ -242,9 +242,14 @@
 # if __name__ == "__main__":
 #     main()
 
-from src.data.production_ingester import ingest_all
+# from src.data.production_ingester import ingest_all
 
-ingest_all(
-    config_path="config/datasets.yaml",
-    schema_path="config/canonical_schema.yaml"
-)
+# ingest_all(
+#     config_path="config/datasets.yaml",
+#     schema_path="config/canonical_schema.yaml"
+# )
+
+
+with open(r'C:\Users\Administrator\OneDrive\Desktop\SalesAI\backend\data\raw\sales_train_evaluation.csv') as f:
+    total_rows = sum(1 for _ in f) - 1  # subtract header
+print(f"Total rows in sales data: {total_rows}")

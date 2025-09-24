@@ -1,0 +1,248 @@
+
+metadata:
+  name: "M5_Walmart_Features"
+  version: "1.0.0"
+  description: "Feature engineering configuration for M5 Walmart dataset"
+  created_by: "Data Engineering Team"
+  last_updated: "2024-01-15"
+
+# Dataset-specific settings
+dataset:
+  target_column: "sales"
+  group_columns: ["store_id", "item_id"]
+  hierarchy_columns: ["item_id", "dept_id", "cat_id", "store_id", "state_id"]
+  date_column: "date"
+
+# Processing settings
+processing:
+  memory_efficient: true
+  chunk_size: 100000
+  n_jobs: -1
+  enable_validation: true
+  save_intermediate: false
+
+# Date and calendar features
+date_features:
+  enabled: true
+  basic_features:
+    - "year"
+    - "month" 
+    - "day"
+    - "dayofweek"
+    - "quarter"
+    - "weekofyear"
+  
+  derived_features:
+    - "is_weekend"
+    - "is_month_start"
+    - "is_month_end"
+    - "week_of_month"
+    - "is_payday_week"
+  
+  holiday_features:
+    enabled: true
+    country: "US"
+    years: [2011, 2012, 2013, 2014, 2015, 2016]
+    custom_holidays:
+      - "christmas_period"  # Dec 15-31
+      - "thanksgiving_week" # Nov 22-28
+      - "back_to_school"    # Aug 1 - Sep 15
+  
+  cyclical_encoding:
+    enabled: true
+    features:
+      month:
+        period: 12
+        prefix: "month"
+      dayofweek:
+        period: 7
+        prefix: "dow"
+
+# Lag features
+lag_features:
+  enabled: true
+  
+  sales_lags:
+    windows: [1, 2, 3, 7, 14, 21, 28, 35, 42]
+    dtype: "int16"
+    
+  price_lags:
+    windows: [1, 7, 14, 28]
+    dtype: "float32"
+    
+  revenue_lags:
+    windows: [7, 14, 28]
+    dtype: "float32"
+
+# Rolling window features
+rolling_features:
+  enabled: true
+  
+  windows: [7, 14, 28, 56]
+  min_periods: 1
+  
+  statistics:
+    - name: "mean"
+      dtype: "float32"
+    - name: "std"
+      dtype: "float32"
+      fill_na: 0
+    - name: "min"
+      dtype: "int16"
+    - name: "max"
+      dtype: "int16"
+  
+  columns:
+    - "sales"
+
+# Exponentially weighted features
+ewm_features:
+  enabled: true
+  spans: [7, 14, 28]
+  adjust: false
+  dtype: "float32"
+  columns:
+    - "sales"
+
+# Walmart-specific features
+walmart_features:
+  
+  # SNAP benefits features
+  snap_features:
+    enabled: true
+    snap_columns: ["snap_CA", "snap_TX", "snap_WI"]
+    interactions:
+      enabled: true
+      food_categories: ["FOODS_1", "FOODS_2", "FOODS_3"]
+    timing_features:
+      enabled: true
+      benefit_period_days: 10  # First 10 days of month
+  
+  # Price-related features
+  price_features:
+    enabled: true
+    price_column: "sell_price"
+    
+    change_features:
+      enabled: true
+      windows: [1, 7, 14, 28]
+      thresholds:
+        increase: 0.05  # 5% price increase
+        decrease: -0.05 # 5% price decrease
+    
+    relative_features:
+      enabled: true
+      comparisons:
+        - level: "cat_id"
+          name: "category"
+        - level: "dept_id" 
+          name: "department"
+    
+    volatility_features:
+      enabled: true
+      windows: [7, 28]
+  
+  # Event features
+  event_features:
+    enabled: true
+    event_columns:
+      - "event_name_1"
+      - "event_name_2"
+      - "event_type_1"
+      - "event_type_2"
+    
+    major_events:
+      - "Christmas"
+      - "Thanksgiving"
+      - "Easter"
+      - "SuperBowl"
+    
+    days_around_event: 30  # Track +/- 30 days around events
+
+# Hierarchical aggregation features
+hierarchical_features:
+  enabled: true
+  
+  aggregation_levels:
+    - columns: ["store_id"]
+      name: "store"
+      
+    - columns: ["cat_id"]
+      name: "category"
+      
+    - columns: ["dept_id"]
+      name: "department"
+      
+    - columns: ["state_id"]
+      name: "state"
+      
+    - columns: ["store_id", "cat_id"]
+      name: "store_cat"
+      
+    - columns: ["store_id", "dept_id"]
+      name: "store_dept"
+  
+  windows: [7, 28]
+  statistics: ["mean"]
+  columns: ["sales", "revenue"]
+
+# Advanced features
+advanced_features:
+  enabled: true
+  
+  trend_features:
+    enabled: true
+    features:
+      - "time_index"
+      - "sales_velocity"
+      - "sales_acceleration"
+  
+  ratio_features:
+    enabled: true
+    base_windows: [7, 28]
+    
+  lifecycle_features:
+    enabled: true
+    features:
+      - "days_since_first_sale"
+      - "zero_sales_flag"
+      - "consecutive_zero_days"
+
+# Feature selection and validation
+feature_selection:
+  enabled: false
+  method: "random_forest"
+  importance_threshold: 0.001
+  max_features: 500
+  sample_size: 100000
+
+# Data type optimization
+dtype_optimization:
+  enabled: true
+  
+  mappings:
+    flag_columns: "int8"        # *_flag, is_*
+    lag_sales: "int16"          # sales_lag_*
+    date_components: "int16"    # year, month, day, etc.
+    prices: "float32"           # price-related features
+    ratios: "float32"           # ratio features
+    
+  categorical_threshold: 0.5    # Convert to category if < 50% unique values
+
+# Missing value handling
+missing_values:
+  strategy:
+    time_series_features: "forward_fill"  # lag, rolling, ewm features
+    price_features: "group_forward_fill"  # forward fill within item-store groups
+    flag_features: "zero_fill"            # binary flags
+    other_features: "mean_fill"           # other numeric features
+  
+  validation:
+    max_missing_pct: 50  # Warn if > 50% missing
+
+# Output settings
+output:
+  save_metadata: true
+  compression: "snappy"
+  row_group_size: 50000
+  use_dictionary: true

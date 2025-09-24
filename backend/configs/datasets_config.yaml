@@ -1,0 +1,68 @@
+metadata:
+  name: "M5_Walmart_Dataset"
+  version: "1.0.0"
+  description: "M5 Walmart dataset processing configuration"
+
+# Data paths
+data_paths:
+  sales_train: "data/raw/sales_train_evaluation.csv"
+  prices: "data/raw/sell_prices.csv" 
+  calendar: "data/raw/calendar.csv"
+  
+  # Output paths
+  processed_data: "data/processed/m5/m5_master.parquet"
+  features_data: "data/features/m5/m5_features.parquet"
+
+# Dataset schema
+schema:
+  sales_columns:
+    id: "string"
+    item_id: "category"
+    dept_id: "category" 
+    cat_id: "category"
+    store_id: "category"
+    state_id: "category"
+    
+  calendar_columns:
+    date: "datetime"
+    wm_yr_wk: "int32"
+    weekday: "int8"
+    d: "category"
+    event_name_1: "string"
+    event_type_1: "string"
+    event_name_2: "string"  
+    event_type_2: "string"
+    snap_CA: "int8"
+    snap_TX: "int8"
+    snap_WI: "int8"
+    
+  prices_columns:
+    store_id: "category"
+    item_id: "category"
+    wm_yr_wk: "int32"
+    sell_price: "float32"
+
+# Processing parameters
+processing:
+  chunk_size: 5000
+  max_memory_gb: 4.0
+  enable_validation: true
+  save_quality_report: true
+
+# Data quality thresholds
+quality:
+  min_sales_per_item: 100
+  max_zero_days_pct: 0.95
+  min_completeness_score: 0.8
+
+# Validation rules
+validation:
+  required_columns:
+    sales: ["date", "store_id", "item_id", "sales"]
+    calendar: ["date", "d"]
+    prices: ["store_id", "item_id", "sell_price"]
+    
+  business_rules:
+    - "sales >= 0"
+    - "sell_price > 0 OR sell_price IS NULL"
+    - "date >= '2011-01-29' AND date <= '2016-05-22'"
