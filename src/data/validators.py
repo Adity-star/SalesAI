@@ -116,8 +116,6 @@ class DataValidator:
         else:
             return 0
 
-
-
 def create_pandera_schema(self) -> DataFrameSchema:
     schema_dict = {}
     for col, dtype in self.data_types.items():

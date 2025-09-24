@@ -242,18 +242,9 @@
 # if __name__ == "__main__":
 #     main()
 
-import os
-# from from_root import from_root
-def get_config_path():
-    """Get the correct config path based on environment (local vs Docker)"""
-    # Check if we're in a Docker container (Airflow environment)
-    if os.path.exists('/usr/local/airflow'):
-        # In Docker/Airflow environment
-        return os.path.join("/usr/local/airflow", "src", "config", "ml_config.yaml")
-    else:
-        # Local development environment
-        return os.path.join(os.path.dirname(__file__), "..", "config", "ml_config.yaml")
+from src.data.production_ingester import ingest_all
 
-config_path = get_config_path()
-
-print(config_path)
+ingest_all(
+    config_path="config/datasets.yaml",
+    schema_path="config/canonical_schema.yaml"
+)
