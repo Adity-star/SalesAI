@@ -24,3 +24,28 @@ stages:
       hash: md5
       md5: d1bdc37d19ed9178b7d89c6ce69dedbb
       size: 2075959
+  Feature-engineering:
+    cmd: python -m src.run_features --input data/processed/m5/master.parquet 
+      --output data/features/m5/m5_features.parquet
+    deps:
+    - path: configs/features.yaml
+      hash: md5
+      md5: 7ba022e2ae8253d31b0242b8ea73b474
+      size: 5276
+    - path: data/processed/m5/master.parquet
+      hash: md5
+      md5: d1bdc37d19ed9178b7d89c6ce69dedbb
+      size: 2075959
+    - path: src/features/m5_feature_pipeline.py
+      hash: md5
+      md5: 68e121bd2e529369c58608faff13a7c2
+      size: 42826
+    - path: src/run_features.py
+      hash: md5
+      md5: ffe8905c0e220ca7ef170e39a2ad3d70
+      size: 9027
+    outs:
+    - path: data\features\m5\m5_features.parquet
+      hash: md5
+      md5: 6edff35c01a6eb455cad830c85897e20
+      size: 121793215

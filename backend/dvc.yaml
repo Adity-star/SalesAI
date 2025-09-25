@@ -9,11 +9,11 @@ stages:
     outs:
       - data/processed/m5/master.parquet
   Feature-engineering:
-    cmd: python -m src.run_features
+    cmd: python -m src.run_features --input data/processed/m5/master.parquet --output data/features/m5/m5_features.parquet
     deps:
       - src/features/m5_feature_pipeline.py
       - src/run_features.py
       - data/processed/m5/master.parquet
       - configs/features.yaml
     outs:
-      - data/features/m5/features.parquet
+      - data\features\m5\m5_features.parquet

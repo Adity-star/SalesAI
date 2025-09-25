@@ -56,7 +56,6 @@ M5_FEATURE_CONFIG = {
 }
 
 
-
 def validate_input_data(df: pd.DataFrame) -> bool:
     """Validate input data has required columns."""
     required_cols = ['date', 'store_id', 'item_id', 'sales']
