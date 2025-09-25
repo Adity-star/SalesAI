@@ -1,21 +1,13 @@
  # weather APIs, holiday calendar etc
 
+import os
 import requests
 import json
 from datetime import datetime, timedelta
 import random
 import logging
-from src.logger import logger
 import calendar as cal
-
-logger = logging.getLogger(__name__)
-
-
-import logging
-import random
-from datetime import datetime, timedelta
-import requests
-import os
+from src.logger import logger
 
 logger = logging.getLogger(__name__)
 
