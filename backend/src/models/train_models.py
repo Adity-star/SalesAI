@@ -18,13 +18,12 @@ from prophet import Prophet
 import optuna 
 import mlflow
 import time
-from concurrent.futures import ThreadPoolExecutor
 from sklearn.linear_model import Ridge
 
 from src.utils.config_loader import load_config, get_config_path
 from src.utils.mlflow_utils import MLflowManager
 from src.features.feature_pipeline import FeaturePipeline
-from src.data.validators import DataValidator
+from src.data_pipelines.validators import DataValidator
 from src.models.advanced_ensemble import AdvancedEnsemble
 from src.models.digonistics import diagnose_model_performance
 from src.models.ensemble_model import EnsembleModel
@@ -182,9 +181,12 @@ class ModelTrainer:
 
             # Detect GPU
         try:
-            import cupy
-            tree_method = "gpu_hist"
-        except ImportError:
+            import xgboost as xgb
+            if xgb.get_config().get('use_gpu', False):
+                tree_method = "gpu_hist"
+            else:
+                tree_method = "hist"
+        except Exception:
             tree_method = "hist"
 
         best_params = None

@@ -6,7 +6,7 @@ import pandas as pd
 DATA_DIR = Variable.get("sales_data_dir", "/tmp/sales_data")
 def extract_data_task(data_dir: str = DATA_DIR) -> dict:
         logger.info("Starting synthetic sales data generation")
-        from src.data.data_generator import SyntheticDataGenerator
+        from src.data_pipelines.data_generator import SyntheticDataGenerator
 
         os.makedirs(data_dir, exist_ok=True)
 

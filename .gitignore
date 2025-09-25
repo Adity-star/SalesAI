@@ -1,5 +1,6 @@
 
 data/
+!backend/data/raw/*.dvc
 
 tmp/
 

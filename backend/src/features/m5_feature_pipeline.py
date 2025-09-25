@@ -2,7 +2,6 @@
 M5 Walmart-Specific Feature Pipeline
 ===================================
 
-Enhanced feature pipeline specifically designed for M5 Walmart dataset:
 - Walmart-specific retail features (price elasticity, SNAP benefits, hierarchical aggregations)
 - M5-specific calendar features (events, holidays, promotions)
 - Advanced time series features for retail forecasting
@@ -10,10 +9,10 @@ Enhanced feature pipeline specifically designed for M5 Walmart dataset:
 """
 
 import os
-import yaml
 import numpy as np
 import pandas as pd
 import holidays
+import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Tuple, Optional
 from sklearn.ensemble import RandomForestRegressor
@@ -22,41 +21,81 @@ import logging
 import warnings
 from pathlib import Path
 import gc
+from src.logger import logger
+from src.config.m5_config_loader import load_features_config, config_loader
+
 
 logger = logging.getLogger(__name__)
 
 class M5WalmartFeaturePipeline:
-    """M5 Walmart-specific feature engineering pipeline."""
+    """M5 Walmart-specific feature engineering pipeline with configuration support."""
     
-    def __init__(self, df: pd.DataFrame, target_col: str = 'sales', 
-                 config: Dict = None, memory_efficient: bool = True):
+    def __init__(self, df: pd.DataFrame, config_path: Optional[str] = None, 
+                 memory_efficient: bool = True):
         """
         Initialize M5 feature pipeline.
         
         Args:
             df: Input DataFrame with M5 data
-            target_col: Target column name (default: 'sales')
-            config: Feature configuration dictionary
+            config_path: Path to features configuration file
             memory_efficient: Enable memory optimization for large datasets
         """
         self.df = df.copy()
-        self.target_col = target_col
         self.memory_efficient = memory_efficient
         
-        # M5-specific group columns
-        self.group_cols = ['store_id', 'item_id']
-        self.hierarchy_cols = ['item_id', 'dept_id', 'cat_id', 'store_id', 'state_id']
+        # Load configuration
+        try:
+            self.config = load_features_config(config_path)
+            logger.info(f"Loaded configuration: {config_loader.get_config_summary(self.config)}")
+        except Exception as e:
+            logger.warning(f"Failed to load configuration: {e}. Using defaults.")
+            self.config = self._get_fallback_config()
         
-        # Default configuration optimized for M5
-        self.config = config or self._get_default_m5_config()
+        # Extract configuration values
+        dataset_config = self.config.get('dataset', {})
+        self.target_col = dataset_config.get('target_column', 'sales')
+        self.group_cols = dataset_config.get('group_columns', ['store_id', 'item_id'])
+        self.hierarchy_cols = dataset_config.get('hierarchy_columns', 
+                                               ['item_id', 'dept_id', 'cat_id', 'store_id', 'state_id'])
+        self.date_col = dataset_config.get('date_column', 'date')
+        
+        # Processing configuration
+        processing_config = self.config.get('processing', {})
+        self.chunk_size = processing_config.get('chunk_size', 100000)
+        self.n_jobs = processing_config.get('n_jobs', -1)
         
         # Validate input data
         self._validate_m5_data()
         
         logger.info(f"Initialized M5WalmartFeaturePipeline with {len(df)} rows")
-        logger.info(f"Target: {target_col}, Memory efficient: {memory_efficient}")
-    
-    def _get_default_m5_config(self) -> Dict:
+        logger.info(f"Target: {self.target_col}, Memory efficient: {memory_efficient}")
+        
+    def _get_fallback_config(self) -> Dict:
+        """Get fallback configuration if loading fails."""
+        return {
+            'dataset': {
+                'target_column': 'date'
+            },
+            'date_features': {'enabled': True},
+            'lag_features': {
+                'enabled': True,
+                'sales_lags': {'windows': [1, 7, 14, 28]}
+            },
+            'rolling_features': {
+                'enabled': True,
+                'windows': [7, 14, 28],
+                'statistics': [{'name': 'mean'}, {'name': 'std'}]
+            },
+            'walmart_features': {
+                'snap_features': {'enabled': True},
+                'price_features': {'enabled': True},
+                'event_featu': 'sales',
+                'group_columns': ['store_id', 'item_id'],
+                'date_column': 'date',
+                'event_features': {'enabled': True}
+            }
+        }
+    def _get_default_config(self) -> Dict:
         """Get default configuration optimized for M5 dataset."""
         return {
             'date_features': {
@@ -90,9 +129,9 @@ class M5WalmartFeaturePipeline:
             }
         }
     
-    def _validate_m5_data(self):
+    def _validate_data(self):
         """Validate that DataFrame has required M5 columns."""
-        required_cols = ['date', 'store_id', 'item_id', 'sales']
+        required_cols = [self.date_col] + self.group_cols + [self.target_col]
         missing_cols = [col for col in required_cols if col not in self.df.columns]
         
         if missing_cols:
@@ -104,67 +143,227 @@ class M5WalmartFeaturePipeline:
         logger.info(f"Available M5 columns: {available_m5_cols}")
         
         # Ensure date is datetime
-        if not pd.api.types.is_datetime64_any_dtype(self.df['date']):
-            self.df['date'] = pd.to_datetime(self.df['date'])
+        if not pd.api.types.is_datetime64_any_dtype(self.df[self.date_col]):
+            self.df[self.date_col] = pd.to_datetime(self.df[self.date_col])
         
         # Sort data for efficient processing
-        self.df = self.df.sort_values(['store_id', 'item_id', 'date']).reset_index(drop=True)
-    
-    def add_m5_date_features(self) -> pd.DataFrame:
-        """Add M5-specific date features including Walmart calendar patterns."""
-        logger.info("Adding M5-specific date features...")
-        
-        date_cfg = self.config.get('date_features', {})
-        if not date_cfg.get('enabled', True):
+        self.df = self.df.sort_values(self.group_cols + [self.date_col]).reset_index(drop=True)
+    def add_date_features(self) -> pd.DataFrame:
+        """Add M5-specific date features based on configuration."""
+        date_config = self.config.get('date_features', {})
+        if not date_config.get('enabled', True):
+            logger.info("Date features disabled in configuration")
             return self.df
         
-        # Basic date features
-        self.df['year'] = self.df['date'].dt.year
-        self.df['month'] = self.df['date'].dt.month
-        self.df['day'] = self.df['date'].dt.day
-        self.df['dayofweek'] = self.df['date'].dt.dayofweek  # 0=Monday
-        self.df['quarter'] = self.df['date'].dt.quarter
-        self.df['weekofyear'] = self.df['date'].dt.isocalendar().week
+        logger.info("Adding M5-specific date features...")
         
-        # Walmart-specific date features
-        self.df['is_weekend'] = (self.df['dayofweek'] >= 5).astype('int8')
-        self.df['is_month_start'] = (self.df['day'] <= 5).astype('int8')
-        self.df['is_month_end'] = (self.df['day'] >= 25).astype('int8')
-        self.df['week_of_month'] = ((self.df['day'] - 1) // 7 + 1).astype('int8')
+        # Basic date features from config
+        basic_features = date_config.get('basic_features', [])
+        for feature in basic_features:
+            if feature == 'year':
+                self.df['year'] = self.df[self.date_col].dt.year
+            elif feature == 'month':
+                self.df['month'] = self.df[self.date_col].dt.month
+            elif feature == 'day':
+                self.df['day'] = self.df[self.date_col].dt.day
+            elif feature == 'dayofweek':
+                self.df['dayofweek'] = self.df[self.date_col].dt.dayofweek
+            elif feature == 'quarter':
+                self.df['quarter'] = self.df[self.date_col].dt.quarter
+            elif feature == 'weekofyear':
+                self.df['weekofyear'] = self.df[self.date_col].dt.isocalendar().week
         
-        # Paycheck cycles (important for Walmart shoppers)
-        self.df['is_payday_week'] = ((self.df['day'] <= 7) | 
-                                    ((self.df['day'] >= 14) & (self.df['day'] <= 21))).astype('int8')
+        # Derived features from config
+        derived_features = date_config.get('derived_features', [])
+        for feature in derived_features:
+            if feature == 'is_weekend' and 'dayofweek' in self.df.columns:
+                self.df['is_weekend'] = (self.df['dayofweek'] >= 5).astype('int8')
+            elif feature == 'is_month_start' and 'day' in self.df.columns:
+                self.df['is_month_start'] = (self.df['day'] <= 5).astype('int8')
+            elif feature == 'is_month_end' and 'day' in self.df.columns:
+                self.df['is_month_end'] = (self.df['day'] >= 25).astype('int8')
+            elif feature == 'week_of_month' and 'day' in self.df.columns:
+                self.df['week_of_month'] = ((self.df['day'] - 1) // 7 + 1).astype('int8')
+            elif feature == 'is_payday_week' and 'day' in self.df.columns:
+                self.df['is_payday_week'] = ((self.df['day'] <= 7) | 
+                                           ((self.df['day'] >= 14) & (self.df['day'] <= 21))).astype('int8')
         
-        # Holiday features using US holidays
-        try:
-            us_holidays = holidays.US(years=range(2011, 2017))  # M5 date range
-            self.df['is_holiday'] = self.df['date'].dt.date.isin(us_holidays).astype('int8')
-            
-            # Specific retail-important holidays
-            christmas_period = ((self.df['month'] == 12) & (self.df['day'] >= 15)).astype('int8')
-            thanksgiving_week = ((self.df['month'] == 11) & (self.df['day'] >= 22)).astype('int8')
-            back_to_school = ((self.df['month'] == 8) | 
-                             ((self.df['month'] == 9) & (self.df['day'] <= 15))).astype('int8')
-            
-            self.df['christmas_period'] = christmas_period
-            self.df['thanksgiving_week'] = thanksgiving_week
-            self.df['back_to_school'] = back_to_school
-            
-        except Exception as e:
-            logger.warning(f"Failed to add holiday features: {e}")
-            self.df['is_holiday'] = 0
+        # Holiday features from config
+        holiday_config = date_config.get('holiday_features', {})
+        if holiday_config.get('enabled', True):
+            try:
+                country = holiday_config.get('country', 'US')
+                years = holiday_config.get('years', list(range(2011, 2017)))
+                
+                country_holidays = holidays.country_holidays(country, years=years)
+                self.df['is_holiday'] = self.df[self.date_col].dt.date.isin(country_holidays).astype('int8')
+                
+                # Custom holidays from config
+                custom_holidays = holiday_config.get('custom_holidays', [])
+                for holiday in custom_holidays:
+                    if holiday == 'christmas_period':
+                        self.df['christmas_period'] = ((self.df['month'] == 12) & 
+                                                     (self.df['day'] >= 15)).astype('int8')
+                    elif holiday == 'thanksgiving_week':
+                        self.df['thanksgiving_week'] = ((self.df['month'] == 11) & 
+                                                      (self.df['day'] >= 22)).astype('int8')
+                    elif holiday == 'back_to_school':
+                        self.df['back_to_school'] = ((self.df['month'] == 8) | 
+                                                   ((self.df['month'] == 9) & (self.df['day'] <= 15))).astype('int8')
+                
+            except Exception as e:
+                logger.warning(f"Failed to add holiday features: {e}")
+                self.df['is_holiday'] = 0
         
-        # Cyclical encoding for better ML performance
-        self.df['month_sin'] = np.sin(2 * np.pi * self.df['month'] / 12).astype('float32')
-        self.df['month_cos'] = np.cos(2 * np.pi * self.df['month'] / 12).astype('float32')
-        self.df['dow_sin'] = np.sin(2 * np.pi * self.df['dayofweek'] / 7).astype('float32')
-        self.df['dow_cos'] = np.cos(2 * np.pi * self.df['dayofweek'] / 7).astype('float32')
+        # Cyclical encoding from config
+        cyclical_config = date_config.get('cyclical_encoding', {})
+        if cyclical_config.get('enabled', True):
+            for feature_name, feature_config in cyclical_config.get('features', {}).items():
+                if feature_name in self.df.columns:
+                    period = feature_config['period']
+                    prefix = feature_config['prefix']
+                    
+                    self.df[f'{prefix}_sin'] = np.sin(2 * np.pi * self.df[feature_name] / period).astype('float32')
+                    self.df[f'{prefix}_cos'] = np.cos(2 * np.pi * self.df[feature_name] / period).astype('float32')
         
         logger.info("M5 date features added successfully")
         return self.df
     
-    def add_m5_snap_features(self) -> pd.DataFrame:
+    def add_lag_features(self) -> pd.DataFrame:
+        """Add lag features based on configuration."""
+        lag_config = self.config.get('lag_features', {})
+        if not lag_config.get('enabled', True):
+            logger.info("Lag features disabled in configuration")
+            return self.df
+        
+        logger.info("Adding M5 lag features...")
+        
+        # Sales lags from config
+        sales_config = lag_config.get('sales_lags', {})
+        sales_lags = sales_config.get('windows', [1, 7, 14, 28])
+        sales_dtype = sales_config.get('dtype', 'int16')
+        
+        for lag in sales_lags:
+            col_name = f'{self.target_col}_lag_{lag}'
+            self.df[col_name] = (self.df.groupby(self.group_cols)[self.target_col]
+                               .shift(lag)
+                               .astype(sales_dtype))
+            logger.debug(f"Created lag feature: {col_name}")
+        
+        # Price lags from config (if price column available)
+        if 'sell_price' in self.df.columns:
+            price_config = lag_config.get('price_lags', {})
+            if price_config:
+                price_lags = price_config.get('windows', [1, 7, 14, 28])
+                price_dtype = price_config.get('dtype', 'float32')
+                
+                for lag in price_lags:
+                    col_name = f'price_lag_{lag}'
+                    self.df[col_name] = (self.df.groupby(self.group_cols)['sell_price']
+                                       .shift(lag)
+                                       .astype(price_dtype))
+        
+        # Revenue lags from config
+        if 'sell_price' in self.df.columns:
+            revenue_config = lag_config.get('revenue_lags', {})
+            if revenue_config:
+                # Create revenue column if not exists
+                if 'revenue' not in self.df.columns:
+                    self.df['revenue'] = self.df[self.target_col] * self.df['sell_price']
+                
+                revenue_lags = revenue_config.get('windows', [7, 14, 28])
+                revenue_dtype = revenue_config.get('dtype', 'float32')
+                
+                for lag in revenue_lags:
+                    col_name = f'revenue_lag_{lag}'
+                    self.df[col_name] = (self.df.groupby(self.group_cols)['revenue']
+                                       .shift(lag)
+                                       .astype(revenue_dtype))
+        
+        logger.info(f"Added {len(sales_lags)} sales lag features")
+        return self.df
+    
+    def add_rolling_features(self) -> pd.DataFrame:
+        """Add rolling statistical features based on configuration."""
+        rolling_config = self.config.get('rolling_features', {})
+        if not rolling_config.get('enabled', True):
+            logger.info("Rolling features disabled in configuration")
+            return self.df
+        
+        logger.info("Adding M5 rolling features...")
+        
+        windows = rolling_config.get('windows', [7, 14, 28])
+        min_periods = rolling_config.get('min_periods', 1)
+        columns = rolling_config.get('columns', [self.target_col])
+        statistics = rolling_config.get('statistics', [{'name': 'mean'}, {'name': 'std'}])
+        
+        for col in columns:
+            if col not in self.df.columns:
+                continue
+                
+            for window in windows:
+                for stat_config in statistics:
+                    stat_name = stat_config['name']
+                    stat_dtype = stat_config.get('dtype', 'float32')
+                    fill_na = stat_config.get('fill_na', None)
+                    
+                    col_name = f'{col}_roll_{window}_{stat_name}'
+                    
+                    try:
+                        if stat_name == 'mean':
+                            result = (self.df.groupby(self.group_cols)[col]
+                                    .rolling(window, min_periods=min_periods)
+                                    .mean()
+                                    .reset_index(0, drop=True))
+                        elif stat_name == 'std':
+                            result = (self.df.groupby(self.group_cols)[col]
+                                    .rolling(window, min_periods=min_periods)
+                                    .std()
+                                    .reset_index(0, drop=True))
+                            if fill_na is not None:
+                                result = result.fillna(fill_na)
+                        elif stat_name == 'min':
+                            result = (self.df.groupby(self.group_cols)[col]
+                                    .rolling(window, min_periods=min_periods)
+                                    .min()
+                                    .reset_index(0, drop=True))
+                        elif stat_name == 'max':
+                            result = (self.df.groupby(self.group_cols)[col]
+                                    .rolling(window, min_periods=min_periods)
+                                    .max()
+                                    .reset_index(0, drop=True))
+                        else:
+                            logger.warning(f"Unknown statistic: {stat_name}")
+                            continue
+                        
+                        self.df[col_name] = result.astype(stat_dtype)
+                        logger.debug(f"Created rolling feature: {col_name}")
+                        
+                    except Exception as e:
+                        logger.error(f"Failed to create rolling feature {col_name}: {e}")
+        
+        logger.info(f"Added rolling features for {len(windows)} windows")
+        return self.df
+    
+    def add_walmart_specific_features(self) -> pd.DataFrame:
+        """Add Walmart-specific features based on configuration."""
+        walmart_config = self.config.get('walmart_features', {})
+        
+        # SNAP features
+        if walmart_config.get('snap_features', {}).get('enabled', True):
+            self._add_snap_features(walmart_config['snap_features'])
+        
+        # Price features  
+        if walmart_config.get('price_features', {}).get('enabled', True):
+            self._add_price_features(walmart_config['price_features'])
+        
+        # Event features
+        if walmart_config.get('event_features', {}).get('enabled', True):
+            self._add_event_features(walmart_config['event_features'])
+        
+        return self.df
+    
+    def add_snap_features(self) -> pd.DataFrame:
         """Add SNAP (food assistance) benefit features - critical for Walmart."""
         logger.info("Adding SNAP benefit features...")
         
@@ -197,7 +396,57 @@ class M5WalmartFeaturePipeline:
         logger.info(f"SNAP features added using columns: {available_snap}")
         return self.df
     
-    def add_m5_price_features(self) -> pd.DataFrame:
+    def _add_price_features(self, price_config: Dict):
+        """Add price-related features."""
+        logger.info("Adding M5 price features...")
+        
+        price_col = price_config.get('price_column', 'sell_price')
+        if price_col not in self.df.columns:
+            logger.warning(f"Price column {price_col} not found")
+            return
+        
+        # Fill missing prices
+        self.df[price_col] = (self.df.groupby(self.group_cols)[price_col]
+                             .transform(lambda x: x.fillna(method='ffill').fillna(method='bfill')))
+        
+        # Price change features
+        change_config = price_config.get('change_features', {})
+        if change_config.get('enabled', True):
+            windows = change_config.get('windows', [1, 7, 14, 28])
+            thresholds = change_config.get('thresholds', {'increase': 0.05, 'decrease': -0.05})
+            
+            for window in windows:
+                lag_col = f'price_lag_{window}'
+                change_col = f'price_change_{window}d'
+                
+                if lag_col in self.df.columns:
+                    self.df[change_col] = ((self.df[price_col] - self.df[lag_col]) / 
+                                         (self.df[lag_col] + 0.01)).astype('float32')
+                    
+                    # Price change flags
+                    self.df[f'price_increased_{window}d'] = (
+                        self.df[change_col] > thresholds['increase']).astype('int8')
+                    self.df[f'price_decreased_{window}d'] = (
+                        self.df[change_col] < thresholds['decrease']).astype('int8')
+        
+        # Relative price features
+        relative_config = price_config.get('relative_features', {})
+        if relative_config.get('enabled', True):
+            for comparison in relative_config.get('comparisons', []):
+                level_col = comparison['level']
+                name = comparison['name']
+                
+                if level_col in self.df.columns:
+                    avg_price = (self.df.groupby([level_col, self.date_col])[price_col]
+                               .transform('mean'))
+                    self.df[f'price_vs_{name}'] = (self.df[price_col] / 
+                                                  (avg_price + 0.01)).astype('float32')
+        
+        logger.info("Price features added successfully")
+        return self.df
+                                      
+    
+    def add_price_features(self) -> pd.DataFrame:
         """Add price-related features specific to retail forecasting."""
         logger.info("Adding M5 price features...")
         
@@ -257,7 +506,7 @@ class M5WalmartFeaturePipeline:
         logger.info("M5 price features added successfully")
         return self.df
     
-    def add_m5_event_features(self) -> pd.DataFrame:
+    def add_event_features(self) -> pd.DataFrame:
         """Add event-related features from M5 calendar."""
         logger.info("Adding M5 event features...")
         
@@ -301,8 +550,50 @@ class M5WalmartFeaturePipeline:
         
         logger.info(f"Event features added using columns: {available_events}")
         return self.df
+
+    def handle_missing_values(self) -> pd.DataFrame:
+        """Handle missing values based on configuration strategies."""
+        logger.info("Handling missing values...")
+        
+        missing_config = self.config.get('missing_values', {})
+        strategy_config = missing_config.get('strategy', {})
+        
+        numeric_cols = self.df.select_dtypes(include=[np.number]).columns
+        
+        for col in numeric_cols:
+            if self.df[col].isnull().any():
+                missing_count = self.df[col].isnull().sum()
+                missing_pct = missing_count / len(self.df) * 100
+                
+                # Apply strategy based on column type and configuration
+                if any(pattern in col for pattern in ['lag', 'roll', 'ewm']):
+                    strategy = strategy_config.get('time_series_features', 'forward_fill')
+                elif 'price' in col:
+                    strategy = strategy_config.get('price_features', 'group_forward_fill')
+                elif col.endswith('_flag') or 'is_' in col:
+                    strategy = strategy_config.get('flag_features', 'zero_fill')
+                else:
+                    strategy = strategy_config.get('other_features', 'mean_fill')
+                
+                # Apply the strategy
+                if strategy == 'forward_fill':
+                    self.df[col] = (self.df.groupby(self.group_cols)[col]
+                                   .transform(lambda x: x.fillna(method='ffill').fillna(method='bfill')))
+                elif strategy == 'group_forward_fill':
+                    self.df[col] = (self.df.groupby(self.group_cols)[col]
+                                   .transform(lambda x: x.fillna(method='ffill')
+                                             .fillna(method='bfill').fillna(x.mean())))
+                elif strategy == 'zero_fill':
+                    self.df[col] = self.df[col].fillna(0)
+                elif strategy == 'mean_fill':
+                    self.df[col] = self.df[col].fillna(self.df[col].mean())
+                
+                logger.debug(f"Filled {missing_count} missing values in {col} using {strategy}")
+        
+        logger.info("Missing value handling completed")
+        return self.df
     
-    def add_m5_hierarchical_features(self) -> pd.DataFrame:
+    def add_hierarchical_features(self) -> pd.DataFrame:
         """Add hierarchical aggregation features (item->dept->category->store->state)."""
         logger.info("Adding M5 hierarchical features...")
         
@@ -378,42 +669,8 @@ class M5WalmartFeaturePipeline:
         
         return chunk
     
-    def add_m5_lag_features(self) -> pd.DataFrame:
-        """Add lag features optimized for M5 retail patterns."""
-        logger.info("Adding M5 lag features...")
-        
-        lag_cfg = self.config.get('lag_features', {})
-        if not lag_cfg.get('enabled', True):
-            return self.df
-        
-        # Sales lags (most important for forecasting)
-        sales_lags = lag_cfg.get('sales_lags', [1, 2, 3, 7, 14, 21, 28])
-        
-        for lag in sales_lags:
-            col_name = f'sales_lag_{lag}'
-            self.df[col_name] = (self.df.groupby(['store_id', 'item_id'])['sales']
-                                .shift(lag)
-                                .astype('int16'))  # Use int16 for sales lags
-            
-            logger.debug(f"Created lag feature: {col_name}")
-        
-        # Revenue lags (if price available)
-        if 'sell_price' in self.df.columns:
-            revenue_lags = lag_cfg.get('revenue_lags', [7, 14, 28])
-            
-            if 'revenue' not in self.df.columns:
-                self.df['revenue'] = self.df['sales'] * self.df['sell_price']
-            
-            for lag in revenue_lags:
-                col_name = f'revenue_lag_{lag}'
-                self.df[col_name] = (self.df.groupby(['store_id', 'item_id'])['revenue']
-                                    .shift(lag)
-                                    .astype('float32'))
-        
-        logger.info(f"Added {len(sales_lags)} sales lag features")
-        return self.df
     
-    def add_m5_rolling_features(self) -> pd.DataFrame:
+    def add_rolling_features(self) -> pd.DataFrame:
         """Add rolling statistical features for M5 dataset."""
         logger.info("Adding M5 rolling features...")
         
@@ -463,7 +720,7 @@ class M5WalmartFeaturePipeline:
         logger.info(f"Added rolling features for {len(windows)} windows")
         return self.df
     
-    def add_m5_advanced_features(self) -> pd.DataFrame:
+    def add_advanced_features(self) -> pd.DataFrame:
         """Add advanced M5-specific features."""
         logger.info("Adding M5 advanced features...")
         
@@ -527,44 +784,6 @@ class M5WalmartFeaturePipeline:
         logger.info("M5 advanced features added successfully")
         return self.df
     
-    def handle_missing_values(self) -> pd.DataFrame:
-        """Handle missing values with M5-specific strategies."""
-        logger.info("Handling missing values...")
-        
-        numeric_cols = self.df.select_dtypes(include=[np.number]).columns
-        
-        for col in numeric_cols:
-            if self.df[col].isnull().any():
-                missing_count = self.df[col].isnull().sum()
-                missing_pct = missing_count / len(self.df) * 100
-                
-                if missing_pct > 50:
-                    logger.warning(f"High missing percentage in {col}: {missing_pct:.1f}%")
-                
-                # Strategy based on column type
-                if 'lag' in col or 'roll' in col or 'ewm' in col:
-                    # Forward fill then backward fill for time series features
-                    self.df[col] = (self.df.groupby(['store_id', 'item_id'])[col]
-                                   .transform(lambda x: x.fillna(method='ffill')
-                                             .fillna(method='bfill')))
-                elif 'price' in col:
-                    # Forward fill prices within item-store groups
-                    self.df[col] = (self.df.groupby(['store_id', 'item_id'])[col]
-                                   .transform(lambda x: x.fillna(method='ffill')
-                                             .fillna(method='bfill')
-                                             .fillna(x.mean())))
-                else:
-                    # Fill with 0 for flags, mean for other features
-                    if col.endswith('_flag') or 'is_' in col:
-                        self.df[col] = self.df[col].fillna(0)
-                    else:
-                        self.df[col] = self.df[col].fillna(self.df[col].mean())
-                
-                logger.debug(f"Filled {missing_count} missing values in {col}")
-        
-        logger.info("Missing value handling completed")
-        return self.df
-    
     def optimize_dtypes(self) -> pd.DataFrame:
         """Optimize data types for memory efficiency."""
         logger.info("Optimizing data types for memory efficiency...")
@@ -602,32 +821,32 @@ class M5WalmartFeaturePipeline:
         
         try:
             # Step 1: M5-specific date features
-            self.df = self.add_m5_date_features()
+            self.df = self.add_date_features()
             
             # Step 2: SNAP benefit features
             if self.config.get('walmart_features', {}).get('snap_features', True):
-                self.df = self.add_m5_snap_features()
+                self.df = self.add_snap_features()
             
             # Step 3: Price features
             if self.config.get('walmart_features', {}).get('price_features', True):
-                self.df = self.add_m5_price_features()
+                self.df = self.add_price_features()
             
             # Step 4: Event features
             if self.config.get('walmart_features', {}).get('event_features', True):
-                self.df = self.add_m5_event_features()
+                self.df = self.add_event_features()
             
             # Step 5: Lag features
-            self.df = self.add_m5_lag_features()
+            self.df = self.add_lag_features()
             
             # Step 6: Rolling statistical features
-            self.df = self.add_m5_rolling_features()
+            self.df = self.add_rolling_features()
             
             # Step 7: Hierarchical aggregation features
             if self.config.get('walmart_features', {}).get('hierarchical_features', True):
-                self.df = self.add_m5_hierarchical_features()
+                self.df = self.add_hierarchical_features()
             
             # Step 8: Advanced features
-            self.df = self.add_m5_advanced_features()
+            self.df = self.add_advanced_features()
             
             # Step 9: Handle missing values
             self.df = self.handle_missing_values()
@@ -721,102 +940,3 @@ class M5WalmartFeaturePipeline:
         
         file_size_mb = Path(output_path).stat().st_size / (1024 * 1024)
         logger.info(f"Features saved: {output_path} ({file_size_mb:.1f} MB)")
-
-# Convenience function for easy usage
-def create_m5_features(df: pd.DataFrame, config: Dict = None, 
-                      memory_efficient: bool = True) -> pd.DataFrame:
-    """
-    Convenience function to create M5 Walmart features.
-    
-    Args:
-        df: Input DataFrame with M5 data
-        config: Feature configuration dictionary
-        memory_efficient: Enable memory optimization
-    
-    Returns:
-        DataFrame with engineered features
-    """
-    pipeline = M5WalmartFeaturePipeline(df, config=config, memory_efficient=memory_efficient)
-    return pipeline.run()
-
-# Example configuration for M5
-M5_FEATURE_CONFIG = {
-    'date_features': {
-        'enabled': True,
-        'cols': ['year', 'month', 'day', 'dayofweek', 'quarter', 
-                'weekofyear', 'is_weekend', 'is_month_start', 'is_month_end']
-    },
-    'lag_features': {
-        'enabled': True,
-        'sales_lags': [1, 2, 3, 7, 14, 21, 28, 35, 42],
-        'price_lags': [1, 7, 14, 28],
-        'revenue_lags': [7, 14, 28]
-    },
-    'rolling_features': {
-        'enabled': True,
-        'windows': [7, 14, 28, 56],
-        'functions': ['mean', 'std', 'min', 'max']
-    },
-    'walmart_features': {
-        'enabled': True,
-        'snap_features': True,
-        'price_features': True,
-        'event_features': True,
-        'hierarchical_features': True
-    },
-    'advanced_features': {
-        'enabled': True,
-        'ewm_spans': [7, 14, 28],
-        'trend_features': True,
-        'ratio_features': True
-    }
-}
-
-if __name__ == "__main__":
-    # Example usage
-    import argparse
-    
-    parser = argparse.ArgumentParser(description="M5 Walmart Feature Engineering")
-    parser.add_argument("--input", required=True, help="Input parquet file path")
-    parser.add_argument("--output", required=True, help="Output parquet file path")
-    parser.add_argument("--config", help="Configuration JSON file path")
-    parser.add_argument("--memory-efficient", action="store_true", help="Enable memory efficient processing")
-    parser.add_argument("--importance", action="store_true", help="Calculate feature importance")
-    
-    args = parser.parse_args()
-    
-    # Setup logging
-    logging.basicConfig(level=logging.INFO)
-    
-    try:
-        # Load data
-        logger.info(f"Loading data from {args.input}")
-        df = pd.read_parquet(args.input)
-        
-        # Load config if provided
-        config = M5_FEATURE_CONFIG
-        if args.config:
-            import json
-            with open(args.config) as f:
-                config = json.load(f)
-        
-        # Create features
-        logger.info("Starting feature engineering...")
-        pipeline = M5WalmartFeaturePipeline(df, config=config, memory_efficient=args.memory_efficient)
-        df_features = pipeline.run()
-        
-        # Save features
-        pipeline.save_features(args.output)
-        
-        # Calculate importance if requested
-        if args.importance:
-            importance_df = pipeline.get_feature_importance()
-            importance_path = args.output.replace('.parquet', '_importance.csv')
-            importance_df.to_csv(importance_path, index=False)
-            logger.info(f"Feature importance saved to {importance_path}")
-        
-        logger.info("Feature engineering completed successfully!")
-        
-    except Exception as e:
-        logger.error(f"Feature engineering failed: {e}")
-        raise

@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from datetime import timedelta
 from src.models.baseline import train_baseline_model
 from src.models.metrics import rmse, mae, smape, mase

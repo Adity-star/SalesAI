@@ -25,7 +25,7 @@ import gc
 sys.path.append(str(Path(__file__).parent))
 
 # Import your M5 processor
-from src.data.production_ingester import M5DatasetProcessor, M5DatasetConfig
+from src.data_pipelines.production_ingester import M5DatasetProcessor, M5DatasetConfig
 
 def setup_logging(debug: bool = False) -> logging.Logger:
     """Setup logging configuration."""

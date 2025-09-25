@@ -1,13 +1,7 @@
 """
-Production-Grade Sales Forecasting Pipeline for Single Dataset
+Sales Forecasting Pipeline for Single Dataset
 ============================================================
 
-FAANG-level implementation focused on one dataset (M5 Walmart Competition):
-- Enterprise-grade data validation and quality monitoring
-- Comprehensive feature engineering with domain expertise
-- Production-ready error handling and monitoring
-- Optimized for scale and reliability
-- Full observability and alerting
 
 Dataset: M5 Forecasting Competition (Walmart)
 - 42,840 time series
@@ -20,7 +14,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 import logging
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Tuple, Any
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 import warnings
@@ -46,9 +40,9 @@ logger = logging.getLogger(__name__)
 class M5DatasetConfig:
     """Configuration specific to M5 Walmart dataset."""
     # Data paths
-    sales_train_path: str = "backend/data/raw/sales_train_evaluation.csv"
-    prices_path: str = "backend/data/raw/sell_prices.csv"
-    calendar_path: str = "backend/data/raw/calendar.csv"
+    sales_train_path: str = "data/raw/sales_train_evaluation.csv"
+    prices_path: str = "data/raw/sell_prices.csv"
+    calendar_path: str = "data/raw/calendar.csv"
     
     # Schema definitions
     sales_schema: Dict = None
@@ -56,7 +50,7 @@ class M5DatasetConfig:
     calendar_schema: Dict = None
     
     # Processing parameters
-    chunk_size: int = 2000
+    chunk_size: int = 10000
     max_memory_gb: float = 8.0
     
     # Validation thresholds
@@ -67,6 +61,8 @@ class M5DatasetConfig:
     save_interim: bool = True
     save_features: bool = True
     compression: str = "snappy"
+    load_fraction: float = 0.5
+    max_rows: int = None
 
 @dataclass
 class DataQualityMetrics:
@@ -181,6 +177,20 @@ def downcast_with_stats(df: pd.DataFrame, name: str = "DataFrame") -> pd.DataFra
 
 
 # -------------------------------
+# Custom JSON Encoder
+# -------------------------------
+
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
+
+# -------------------------------
 # M5 Dataset Processor
 # -------------------------------
 
@@ -262,6 +272,11 @@ class M5DatasetProcessor:
                 calendar = pd.read_csv(self.config.calendar_path, dtype=calendar_dtypes)
                 calendar = downcast_with_stats(calendar, name="Calendar")
 
+                if self.config.load_fraction:
+                    n_rows = int(len(calendar) * self.config.load_fraction)
+                    calendar = calendar.iloc[:n_rows]
+                    logger.info(f"Using only {n_rows} rows ({self.config.load_fraction:.0%}) of calendar data.")
+
                 # Convert date column once
                 calendar['date'] = pd.to_datetime(calendar['date'], errors='coerce')
 
@@ -329,7 +344,12 @@ class M5DatasetProcessor:
                 
                 prices = pd.read_csv(self.config.prices_path, dtype=prices_dtypes)
                 prices = downcast_with_stats(prices, name="Prices")
-                
+
+                if self.config.load_fraction:
+                    n_rows = int(len(prices) * self.config.load_fraction)
+                    prices = prices.iloc[:n_rows]  # Top rows
+                    logger.info(f"Using only {n_rows} rows ({self.config.load_fraction:.0%}) of prices data.")
+                    
                 # Data quality checks
                 null_prices = prices['sell_price'].isna().sum()
                 if null_prices > 0:
@@ -369,10 +389,20 @@ class M5DatasetProcessor:
                 # Identify day columns (d_1, d_2, etc.)
                 day_columns = [col for col in sample_df.columns if col.startswith('d_')]
                 id_columns = ['id', 'item_id', 'dept_id', 'cat_id', 'store_id', 'state_id']
+
                 total_rows = sum(1 for _ in open(self.config.sales_train_path)) - 1  # exclude header
-                half_rows = total_rows // 2
-                logger.info(f"Total rows in sales: {total_rows}, loading half: {half_rows}")
                 
+                # Determine target rows based on load_fraction and optional max_rows
+                if hasattr(self.config, 'max_rows') and self.config.max_rows is not None:
+                    target_rows = min(int(total_rows * self.config.load_fraction), self.config.max_rows)
+                else:
+                    target_rows = int(total_rows * self.config.load_fraction)
+
+                chunk_size = self.config.chunk_size
+
+                total_chunks = (target_rows + chunk_size - 1) // chunk_size
+                logger.info(f"Total rows in sales: {total_rows}")
+                logger.info(f"Loading {self.config.load_fraction:.0%} of dataset → {target_rows} rows in ~{total_chunks} chunks (chunk size={chunk_size})")                
                 # Load in chunks for memory efficiency
                 chunks = []
                 rows_loaded = 0
@@ -382,32 +412,36 @@ class M5DatasetProcessor:
                     dtype={col: 'str' for col in id_columns}
                 )
                 
-                for i, chunk in enumerate(chunk_iterator):
-                    if rows_loaded >= half_rows:
-                        logger.info("Reached half dataset size, stopping further loading")
+                for i, chunk in enumerate(chunk_iterator, start=1):
+                    if rows_loaded >= target_rows:
+                        logger.info(f"Reached target rows ({target_rows}), stopping further loading")
                         break
-                    
-                    if rows_loaded + len(chunk) > half_rows:
-                        chunk = chunk.iloc[:half_rows - rows_loaded]
-                    
+
+                    if rows_loaded + len(chunk) > target_rows:
+                        chunk = chunk.iloc[:target_rows - rows_loaded]
+
                     for col in day_columns:
                         chunk[col] = pd.to_numeric(chunk[col], downcast='integer')
-                    
+
                     chunks.append(chunk)
                     rows_loaded += len(chunk)
-                    
+
+                    logger.info(f"Loaded chunk {i}/{total_chunks}, rows loaded so far: {rows_loaded}")
+
                     self.memory_manager.check_memory_usage()
-                
+
                 sales_wide = pd.concat(chunks, ignore_index=True)
                 del chunks
                 gc.collect()
-                
-                logger.info(f"Loaded half sales data: {len(sales_wide)} items × {len(day_columns)} days")
+
+                logger.info(f"Completed loading sales data: {len(sales_wide)} items × {len(day_columns)} days")
+
                 return sales_wide, day_columns
-            
+
             except Exception as e:
                 logger.error(f"Failed to load sales data: {e}")
                 raise
+
     
     def reshape_sales_data(self, sales_wide: pd.DataFrame, day_columns: List[str]) -> pd.DataFrame:
         logger.info("Reshaping sales data from wide to long format...")
@@ -428,7 +462,7 @@ class M5DatasetProcessor:
                     id_vars=id_columns,
                     value_vars=day_columns,
                     var_name='d',
-                    value_name='sold'  # safe now
+                    value_name='sold'  
                 )
 
                 sales_long['sold'] = pd.to_numeric(sales_long['sold'], downcast='integer')
@@ -448,7 +482,7 @@ class M5DatasetProcessor:
             sales_wide: pd.DataFrame,
             calendar: pd.DataFrame,
             prices: pd.DataFrame,
-            chunk_size: int = 500  # Number of rows to melt & merge at a time
+            chunk_size: int = 1000000
         ) -> Path:
             """
             Chunked version of master dataset creation. Avoids memory blowups by processing smaller pieces.
@@ -461,14 +495,22 @@ class M5DatasetProcessor:
             output_dir.mkdir(parents=True, exist_ok=True)
 
             try:
+                max_chunks = 3
                 total_rows = len(sales_wide)
+                total_chunks = (total_rows + chunk_size - 1) // chunk_size  # ceil division
+                logger.info(f"Total rows: {total_rows}, Chunk size: {chunk_size}, Total chunks to process: {total_chunks}")
+
                 chunk_paths = []
 
-                for start in range(0, total_rows, chunk_size):
-                    end = min(start + chunk_size, total_rows)
-                    logger.info(f"Processing rows {start} to {end}")
+                for i, start in enumerate(range(0, total_rows, chunk_size), 1):
+                    if i > max_chunks:
+                        logger.info(f"Reached max chunk limit ({max_chunks}), stopping further processing")
+                        break
 
+                    end = min(start + chunk_size, total_rows)
+                    logger.info(f"Processing chunk {i}/{total_chunks}: rows {start} to {end}")
                     chunk = sales_wide.iloc[start:end].copy()
+
 
                     # Melt the chunk
                     sales_long = chunk.melt(
@@ -493,6 +535,7 @@ class M5DatasetProcessor:
                     )
 
                     # Compute revenue
+
                     df['sales'] = pd.to_numeric(df['sales'], errors='coerce').fillna(0).astype('float32')
                     df['revenue'] = (df['sales'] * df['sell_price']).astype('float32')
                     df['revenue'] = df['revenue'].fillna(0)
@@ -517,6 +560,11 @@ class M5DatasetProcessor:
             except Exception as e:
                 logger.error(f"Failed during chunked master dataset creation: {e}")
                 raise
+    def load_master_dataset(self, master_data_dir: Path) -> pd.DataFrame:
+       import glob
+       parquet_files = glob.glob(str(master_data_dir / "*.parquet"))
+       dfs = [pd.read_parquet(f) for f in parquet_files]
+       return pd.concat(dfs, ignore_index=True)
 
     
     def validate_data_quality(self, df: pd.DataFrame) -> DataQualityMetrics:
@@ -610,24 +658,16 @@ class M5DatasetProcessor:
                 logger.info(f"Zero sales: {zero_sales_pct:.1f}%")
                 logger.info(f"Negative sales: {negative_sales:,}")
                 logger.info(f"Price coverage: {price_coverage_pct:.1f}%")
-                logger.info(f"Data completeness score: {completeness_score:.3f}")
-                logger.info(f"Temporal consistency score: {temporal_consistency_score:.3f}")
-                logger.info(f"Hierarchical consistency score: {hierarchical_consistency_score:.3f}")
-                logger.info("=" * 60)
-                
-                # Save quality report
-                self.save_quality_report(quality_metrics)
-                
-                return quality_metrics
-                
             except Exception as e:
                 logger.error(f"Data quality validation failed: {e}")
                 raise
-    
+
+
     def save_quality_report(self, metrics: DataQualityMetrics):
         """Save comprehensive data quality report."""
         report_path = Path("data/quality/m5/quality_report.json")
-        
+        report_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure the folder exists
+
         report = {
             'timestamp': datetime.utcnow().isoformat(),
             'dataset': 'M5_Walmart',
@@ -637,11 +677,15 @@ class M5DatasetProcessor:
                 'max_zero_days_pct': self.config.max_zero_days_pct
             }
         }
-        
-        with open(report_path, 'w') as f:
-            json.dump(report, f, indent=2)
-        
-        logger.info(f"Quality report saved to {report_path}")
+
+        try:
+            with open(report_path, 'w') as f:
+                json.dump(report, f, indent=2, cls=NumpyEncoder)
+
+            logger.info(f"✓ Quality report saved to {report_path}")
+        except Exception as e:
+            logger.error(f"Failed to save quality report: {e}", exc_info=True)
+
     
     def save_processed_data(self, df: pd.DataFrame, filename: str = "m5_processed"):
         """Save processed data with optimal compression and metadata."""
@@ -734,7 +778,9 @@ class M5DatasetProcessor:
             gc.collect()
             
             # Step 5: Create master dataset
-            master_df = self.create_master_dataset(sales_long, calendar, prices)
+            master_data_dir = self.create_master_dataset(sales_long, calendar, prices)
+
+            master_df = self.load_master_dataset(master_data_dir)
             
             # Free memory
             del sales_long, calendar, prices

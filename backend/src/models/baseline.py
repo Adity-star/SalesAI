@@ -2,27 +2,13 @@ import lightgbm as lgb
 from src.models.metrics import rmse
 import numpy as np
 import logging
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 def train_baseline_model(X_train, y_train, X_valid, y_valid, params=None, early_stopping_rounds=50, verbose_eval=10):
     """
-    Train a LightGBM baseline model with early stopping.
-
-    Args:
-        X_train (pd.DataFrame or np.ndarray): Training features.
-        y_train (pd.Series or np.ndarray): Training target.
-        X_valid (pd.DataFrame or np.ndarray): Validation features.
-        y_valid (pd.Series or np.ndarray): Validation target.
-        params (dict, optional): LightGBM parameters.
-        early_stopping_rounds (int): Early stopping rounds.
-        verbose_eval (int): Frequency of logging during training.
-
-    Returns:
-        model: Trained LightGBM model.
-        preds: Predictions on validation set.
-        metric: RMSE on validation set.
-        feature_importance (pd.DataFrame): Optional feature importance dataframe.
+    
     """
     if params is None:
         params = {

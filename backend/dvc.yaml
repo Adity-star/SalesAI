@@ -1,0 +1,10 @@
+stages:
+  Data-ingestion:
+    cmd: python -m src.data_pipelines.production_ingester
+    deps:
+      - src/data_pipelines/production_ingester.py
+      - data/raw/sales_train_evaluation.csv
+      - data/raw/calendar.csv
+      - data/raw/sell_prices.csv
+    outs:
+      - processed/m5/master_chunks
