@@ -7,9 +7,9 @@ M5 Feature Engineering Runner
 Run feature engineering on processed M5 data.
 
 Usage:
-    python run_m5_features.py --input data/processed/m5/m5_master.parquet --output data/features/m5/m5_features.parquet
-    python run_m5_features.py --input data/processed/m5/m5_master.parquet --output data/features/m5/m5_features.parquet --memory-efficient
-    python run_m5_features.py --input data/processed/m5/m5_master.parquet --output data/features/m5/m5_features.parquet --importance
+    python run_m5_features.py --input data/processed/m5/master.parquet --output data/features/m5/m5_features.parquet
+    python run_m5_features.py --input data/processed/m5/master.parquet --output data/features/m5/m5_features.parquet --memory-efficient
+    python run_m5_features.py --input data/processed/m5/master.parquet --output data/features/m5/m5_features.parquet --importance
 """
 
 from pathlib import Path 

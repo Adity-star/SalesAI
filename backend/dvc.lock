@@ -1,0 +1,26 @@
+schema: '2.0'
+stages:
+  Data-ingestion:
+    cmd: python -m src.data_pipelines.production_ingester
+    deps:
+    - path: data/raw/calendar.csv
+      hash: md5
+      md5: 3ffeab2991b0c8e861d008b39ea4c95c
+      size: 103469
+    - path: data/raw/sales_train_evaluation.csv
+      hash: md5
+      md5: b806dfc9f30a745102b708c09951f6aa
+      size: 121736518
+    - path: data/raw/sell_prices.csv
+      hash: md5
+      md5: 08c591caa99e55daf3e0ccac913f7c85
+      size: 203395785
+    - path: src/data_pipelines/production_ingester.py
+      hash: md5
+      md5: 999a3263c6ab5f15b83d6f7d5a728212
+      size: 35793
+    outs:
+    - path: data/processed/m5/master.parquet
+      hash: md5
+      md5: d1bdc37d19ed9178b7d89c6ce69dedbb
+      size: 2075959

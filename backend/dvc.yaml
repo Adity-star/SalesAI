@@ -7,4 +7,4 @@ stages:
       - data/raw/calendar.csv
       - data/raw/sell_prices.csv
     outs:
-      - processed/m5/master_chunks
+      - data/processed/m5/master.parquet

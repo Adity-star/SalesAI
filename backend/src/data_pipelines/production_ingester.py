@@ -658,6 +658,9 @@ class M5DatasetProcessor:
                 logger.info(f"Zero sales: {zero_sales_pct:.1f}%")
                 logger.info(f"Negative sales: {negative_sales:,}")
                 logger.info(f"Price coverage: {price_coverage_pct:.1f}%")
+
+                return quality_metrics
+            
             except Exception as e:
                 logger.error(f"Data quality validation failed: {e}")
                 raise
@@ -687,7 +690,7 @@ class M5DatasetProcessor:
             logger.error(f"Failed to save quality report: {e}", exc_info=True)
 
     
-    def save_processed_data(self, df: pd.DataFrame, filename: str = "m5_processed"):
+    def save_processed_data(self, df: pd.DataFrame, filename: str = "processed"):
         """Save processed data with optimal compression and metadata."""
         logger.info(f"Saving processed M5 data: {filename}")
         
@@ -791,7 +794,7 @@ class M5DatasetProcessor:
             
             # Step 7: Save processed data
             if self.config.save_interim:
-                self.save_processed_data(master_df, "m5_master")
+                self.save_processed_data(master_df, "master")
             
             duration = time.time() - start_time
             
