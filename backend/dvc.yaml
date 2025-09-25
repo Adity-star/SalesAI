@@ -8,3 +8,12 @@ stages:
       - data/raw/sell_prices.csv
     outs:
       - data/processed/m5/master.parquet
+  Feature-engineering:
+    cmd: python -m src.run_features
+    deps:
+      - src/features/m5_feature_pipeline.py
+      - src/run_features.py
+      - data/processed/m5/master.parquet
+      - configs/features.yaml
+    outs:
+      - data/features/m5/features.parquet

@@ -250,6 +250,15 @@
 # )
 
 
-with open(r'C:\Users\Administrator\OneDrive\Desktop\SalesAI\backend\data\raw\sales_train_evaluation.csv') as f:
-    total_rows = sum(1 for _ in f) - 1  # subtract header
-print(f"Total rows in sales data: {total_rows}")
+from src.data_pipelines.validators import DataValidator
+
+validate = DataValidator(config_path=r'C:\Users\Administrator\OneDrive\Desktop\SalesAI\backend\configs\features.yaml')
+validate.validate_data_quality()
+def validate_input_data(df):
+    """Validate input DataFrame for expected structure and content."""
+    issues = validate.validate_dataframe(df)
+    if issues:
+        logger.error(f"Input data validation failed with {len(issues)} issues. Sample: {issues[:5]}")
+        return False
+    logger.info("Input data validation passed.")
+

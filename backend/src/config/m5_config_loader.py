@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Union
 from dataclasses import dataclass
 import os
+from src.logger import logger
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 class ConfigPaths:
     """Standard configuration file paths."""
     features: str = "configs/features.yaml"
-    dataset: str = "configs/mdataset_config.yaml"
+    dataset: str = "configs/dataset_config.yaml"
     
 class M5ConfigLoader:
     """Configuration loader for M5 pipeline with validation and defaults."""
@@ -122,7 +123,7 @@ class M5ConfigLoader:
             Features configuration dictionary
         """
         if config_path is None:
-            config_path = "m5_features.yaml"
+            config_path = "features.yaml"
         
         config = self.load_yaml(config_path)
         
@@ -150,7 +151,7 @@ class M5ConfigLoader:
             Dataset configuration dictionary
         """
         if config_path is None:
-            config_path = "m5_dataset.yaml"
+            config_path = "dataset_config.yaml"
         
         config = self.load_yaml(config_path)
         
@@ -225,29 +226,6 @@ class M5ConfigLoader:
                     file_size_mb = path.stat().st_size / (1024 * 1024)
                     logger.info(f"Found {path_key}: {path} ({file_size_mb:.1f} MB)")
     
-    def _get_default_logging_config(self) -> Dict[str, Any]:
-        """Get default logging configuration."""
-        return {
-            'version': 1,
-            'disable_existing_loggers': False,
-            'formatters': {
-                'default': {
-                    'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-                }
-            },
-            'handlers': {
-                'console': {
-                    'class': 'logging.StreamHandler',
-                    'level': 'INFO',
-                    'formatter': 'default'
-                }
-            },
-            'root': {
-                'level': 'INFO',
-                'handlers': ['console']
-            }
-        }
-    
     def save_config(self, config: Dict[str, Any], file_path: Union[str, Path], 
                    format_type: str = 'yaml'):
         """
@@ -280,92 +258,7 @@ class M5ConfigLoader:
         except Exception as e:
             logger.error(f"Failed to save configuration to {file_path}: {e}")
             raise
-    
-    def create_default_configs(self):
-        """Create default configuration files if they don't exist."""
-        
-        # Create default features config
-        features_config_path = self.config_dir / "m5_features.yaml"
-        if not features_config_path.exists():
-            logger.info("Creating default features configuration...")
-            default_features_config = self._get_default_features_config()
-            self.save_config(default_features_config, features_config_path)
-        
-        # Create default dataset config
-        dataset_config_path = self.config_dir / "m5_dataset.yaml"
-        if not dataset_config_path.exists():
-            logger.info("Creating default dataset configuration...")
-            default_dataset_config = self._get_default_dataset_config()
-            self.save_config(default_dataset_config, dataset_config_path)
-    
-    def _get_default_features_config(self) -> Dict[str, Any]:
-        """Get default features configuration."""
-        return {
-            'metadata': {
-                'name': 'M5_Walmart_Features',
-                'version': '1.0.0',
-                'description': 'Default M5 feature engineering configuration'
-            },
-            'dataset': {
-                'target_column': 'sales',
-                'group_columns': ['store_id', 'item_id'],
-                'date_column': 'date'
-            },
-            'processing': {
-                'memory_efficient': True,
-                'chunk_size': 100000,
-                'n_jobs': -1
-            },
-            'date_features': {
-                'enabled': True,
-                'basic_features': ['year', 'month', 'day', 'dayofweek', 'quarter', 'weekofyear'],
-                'derived_features': ['is_weekend', 'is_month_start', 'is_month_end'],
-                'holiday_features': {
-                    'enabled': True,
-                    'country': 'US'
-                }
-            },
-            'lag_features': {
-                'enabled': True,
-                'sales_lags': {
-                    'windows': [1, 2, 3, 7, 14, 21, 28],
-                    'dtype': 'int16'
-                }
-            },
-            'rolling_features': {
-                'enabled': True,
-                'windows': [7, 14, 28],
-                'statistics': [
-                    {'name': 'mean', 'dtype': 'float32'},
-                    {'name': 'std', 'dtype': 'float32', 'fill_na': 0}
-                ]
-            }
-        }
-    
-    def _get_default_dataset_config(self) -> Dict[str, Any]:
-        """Get default dataset configuration."""
-        return {
-            'metadata': {
-                'name': 'M5_Walmart_Dataset',
-                'version': '1.0.0'
-            },
-            'data_paths': {
-                'sales_train': 'data/raw/sales_train_evaluation.csv',
-                'prices': 'data/raw/sell_prices.csv',
-                'calendar': 'data/raw/calendar.csv',
-                'processed_data': 'data/processed/m5/m5_master.parquet',
-                'features_data': 'data/features/m5/m5_features.parquet'
-            },
-            'processing': {
-                'chunk_size': 5000,
-                'max_memory_gb': 4.0
-            },
-            'quality': {
-                'min_sales_per_item': 100,
-                'max_zero_days_pct': 0.95
-            }
-        }
-    
+
     def get_config_summary(self, config: Dict[str, Any]) -> str:
         """Get a summary of configuration settings."""
         summary_lines = []
@@ -392,6 +285,8 @@ class M5ConfigLoader:
             summary_lines.append(f"Enabled: {', '.join(enabled_features)}")
         
         return '\n'.join(summary_lines)
+
+   
 
 # Global config loader instance
 config_loader = M5ConfigLoader()
@@ -420,14 +315,9 @@ def load_config(config_type: str, config_path: Optional[str] = None) -> Dict[str
         return load_features_config(config_path)
     elif config_type == 'dataset':
         return load_dataset_config(config_path)
-    elif config_type == 'logging':
-        return config_loader.load_logging_config(config_path)
+    
     else:
         raise ValueError(f"Unknown config type: {config_type}")
-
-def create_default_configs():
-    """Create default configuration files."""
-    config_loader.create_default_configs()
 
 if __name__ == "__main__":
     # Test configuration loading
@@ -449,19 +339,16 @@ if __name__ == "__main__":
     # Initialize config loader
     loader = M5ConfigLoader(args.config_dir)
     
-    if args.create_defaults:
-        loader.create_default_configs()
-        print("Default configuration files created.")
     
     if args.test_load:
         try:
             # Test loading each config type
             features_config = loader.load_features_config()
             print("Features config loaded successfully")
-            print(loader.get_config_summary(features_config))
             
             dataset_config = loader.load_dataset_config()
             print("\nDataset config loaded successfully")
             
         except Exception as e:
             print(f"Error loading configurations: {e}")
+

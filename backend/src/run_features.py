@@ -68,7 +68,7 @@ def validate_input_data(df: pd.DataFrame) -> bool:
     
     logger.info(f"Input validation passed. Data shape: {df.shape}")
     logger.info(f"Date range: {df['date'].min()} to {df['date'].max()}")
-    logger.info(f"Unique time series: {df.groupby(['store_id', 'item_id']).ngroups:,}")
+    logger.info(f"Unique time series: {df.groupby(['store_id', 'item_id'],observed=False).ngroups:,}")
     
     return True
 
@@ -146,7 +146,6 @@ Examples:
         logger.info("Initializing M5 feature pipeline...")
         pipeline = M5WalmartFeaturePipeline(
             df=df, 
-            config=config,
             memory_efficient=args.memory_efficient
         )
         

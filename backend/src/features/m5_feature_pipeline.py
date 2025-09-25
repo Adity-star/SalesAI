@@ -65,7 +65,7 @@ class M5WalmartFeaturePipeline:
         self.n_jobs = processing_config.get('n_jobs', -1)
         
         # Validate input data
-        self._validate_m5_data()
+        self._validate_data()
         
         logger.info(f"Initialized M5WalmartFeaturePipeline with {len(df)} rows")
         logger.info(f"Target: {self.target_col}, Memory efficient: {memory_efficient}")
@@ -148,86 +148,96 @@ class M5WalmartFeaturePipeline:
         
         # Sort data for efficient processing
         self.df = self.df.sort_values(self.group_cols + [self.date_col]).reset_index(drop=True)
+
+
     def add_date_features(self) -> pd.DataFrame:
         """Add M5-specific date features based on configuration."""
         date_config = self.config.get('date_features', {})
         if not date_config.get('enabled', True):
             logger.info("Date features disabled in configuration")
             return self.df
-        
+
         logger.info("Adding M5-specific date features...")
-        
+
+        # Ensure datetime format and handle invalid/missing values
+        self.df[self.date_col] = pd.to_datetime(self.df[self.date_col], errors='coerce')
+
+        if self.df[self.date_col].isna().any():
+            logger.warning("Date column contains missing values. Filling using forward-fill.")
+            self.df[self.date_col] = self.df[self.date_col].fillna(method='ffill')
+
         # Basic date features from config
         basic_features = date_config.get('basic_features', [])
         for feature in basic_features:
             if feature == 'year':
-                self.df['year'] = self.df[self.date_col].dt.year
+                self.df['year'] = self.df[self.date_col].dt.year.astype('Int16')
             elif feature == 'month':
-                self.df['month'] = self.df[self.date_col].dt.month
+                self.df['month'] = self.df[self.date_col].dt.month.astype('Int8')
             elif feature == 'day':
-                self.df['day'] = self.df[self.date_col].dt.day
+                self.df['day'] = self.df[self.date_col].dt.day.astype('Int8')
             elif feature == 'dayofweek':
-                self.df['dayofweek'] = self.df[self.date_col].dt.dayofweek
+                self.df['dayofweek'] = self.df[self.date_col].dt.dayofweek.astype('Int8')
             elif feature == 'quarter':
-                self.df['quarter'] = self.df[self.date_col].dt.quarter
+                self.df['quarter'] = self.df[self.date_col].dt.quarter.astype('Int8')
             elif feature == 'weekofyear':
-                self.df['weekofyear'] = self.df[self.date_col].dt.isocalendar().week
-        
+                self.df['weekofyear'] = self.df[self.date_col].dt.isocalendar().week.astype('Int8')
+
         # Derived features from config
         derived_features = date_config.get('derived_features', [])
         for feature in derived_features:
             if feature == 'is_weekend' and 'dayofweek' in self.df.columns:
-                self.df['is_weekend'] = (self.df['dayofweek'] >= 5).astype('int8')
+                self.df['is_weekend'] = (self.df['dayofweek'] >= 5).astype('Int8')
             elif feature == 'is_month_start' and 'day' in self.df.columns:
-                self.df['is_month_start'] = (self.df['day'] <= 5).astype('int8')
+                self.df['is_month_start'] = (self.df['day'] <= 5).astype('Int8')
             elif feature == 'is_month_end' and 'day' in self.df.columns:
-                self.df['is_month_end'] = (self.df['day'] >= 25).astype('int8')
+                self.df['is_month_end'] = (self.df['day'] >= 25).astype('Int8')
             elif feature == 'week_of_month' and 'day' in self.df.columns:
-                self.df['week_of_month'] = ((self.df['day'] - 1) // 7 + 1).astype('int8')
+                self.df['week_of_month'] = ((self.df['day'] - 1) // 7 + 1).astype('Int8')
             elif feature == 'is_payday_week' and 'day' in self.df.columns:
-                self.df['is_payday_week'] = ((self.df['day'] <= 7) | 
-                                           ((self.df['day'] >= 14) & (self.df['day'] <= 21))).astype('int8')
-        
+                self.df['is_payday_week'] = ((self.df['day'] <= 7) |
+                                            ((self.df['day'] >= 14) & (self.df['day'] <= 21))).astype('Int8')
+
         # Holiday features from config
         holiday_config = date_config.get('holiday_features', {})
         if holiday_config.get('enabled', True):
             try:
+                import holidays
                 country = holiday_config.get('country', 'US')
                 years = holiday_config.get('years', list(range(2011, 2017)))
-                
                 country_holidays = holidays.country_holidays(country, years=years)
-                self.df['is_holiday'] = self.df[self.date_col].dt.date.isin(country_holidays).astype('int8')
-                
+
+                self.df['is_holiday'] = self.df[self.date_col].dt.date.isin(country_holidays).astype('Int8')
+
                 # Custom holidays from config
                 custom_holidays = holiday_config.get('custom_holidays', [])
                 for holiday in custom_holidays:
                     if holiday == 'christmas_period':
-                        self.df['christmas_period'] = ((self.df['month'] == 12) & 
-                                                     (self.df['day'] >= 15)).astype('int8')
+                        self.df['christmas_period'] = ((self.df['month'] == 12) &
+                                                    (self.df['day'] >= 15)).astype('Int8')
                     elif holiday == 'thanksgiving_week':
-                        self.df['thanksgiving_week'] = ((self.df['month'] == 11) & 
-                                                      (self.df['day'] >= 22)).astype('int8')
+                        self.df['thanksgiving_week'] = ((self.df['month'] == 11) &
+                                                        (self.df['day'] >= 22)).astype('Int8')
                     elif holiday == 'back_to_school':
-                        self.df['back_to_school'] = ((self.df['month'] == 8) | 
-                                                   ((self.df['month'] == 9) & (self.df['day'] <= 15))).astype('int8')
-                
+                        self.df['back_to_school'] = ((self.df['month'] == 8) |
+                                                    ((self.df['month'] == 9) & (self.df['day'] <= 15))).astype('Int8')
+
             except Exception as e:
                 logger.warning(f"Failed to add holiday features: {e}")
                 self.df['is_holiday'] = 0
-        
-        # Cyclical encoding from config
+
+        # Cyclical encoding
         cyclical_config = date_config.get('cyclical_encoding', {})
         if cyclical_config.get('enabled', True):
             for feature_name, feature_config in cyclical_config.get('features', {}).items():
                 if feature_name in self.df.columns:
                     period = feature_config['period']
                     prefix = feature_config['prefix']
-                    
                     self.df[f'{prefix}_sin'] = np.sin(2 * np.pi * self.df[feature_name] / period).astype('float32')
                     self.df[f'{prefix}_cos'] = np.cos(2 * np.pi * self.df[feature_name] / period).astype('float32')
-        
+
         logger.info("M5 date features added successfully")
         return self.df
+
     
     def add_lag_features(self) -> pd.DataFrame:
         """Add lag features based on configuration."""
@@ -235,115 +245,115 @@ class M5WalmartFeaturePipeline:
         if not lag_config.get('enabled', True):
             logger.info("Lag features disabled in configuration")
             return self.df
-        
+
         logger.info("Adding M5 lag features...")
-        
+
         # Sales lags from config
         sales_config = lag_config.get('sales_lags', {})
         sales_lags = sales_config.get('windows', [1, 7, 14, 28])
         sales_dtype = sales_config.get('dtype', 'int16')
-        
+
         for lag in sales_lags:
             col_name = f'{self.target_col}_lag_{lag}'
-            self.df[col_name] = (self.df.groupby(self.group_cols)[self.target_col]
-                               .shift(lag)
-                               .astype(sales_dtype))
+            lagged = self.df.groupby(self.group_cols,observed=False)[self.target_col].shift(lag)
+            
+            if 'int' in sales_dtype:
+                # Fill NaNs with -1 (or 0 if preferred) before converting to int
+                lagged = lagged.fillna(-1).astype(sales_dtype)
+            else:
+                lagged = lagged.astype(sales_dtype)
+            
+            self.df[col_name] = lagged
             logger.debug(f"Created lag feature: {col_name}")
-        
+
         # Price lags from config (if price column available)
         if 'sell_price' in self.df.columns:
             price_config = lag_config.get('price_lags', {})
             if price_config:
                 price_lags = price_config.get('windows', [1, 7, 14, 28])
                 price_dtype = price_config.get('dtype', 'float32')
-                
+
                 for lag in price_lags:
                     col_name = f'price_lag_{lag}'
-                    self.df[col_name] = (self.df.groupby(self.group_cols)['sell_price']
-                                       .shift(lag)
-                                       .astype(price_dtype))
-        
+                    lagged = self.df.groupby(self.group_cols,observed=False)['sell_price'].shift(lag)
+                    self.df[col_name] = lagged.astype(price_dtype)
+
         # Revenue lags from config
         if 'sell_price' in self.df.columns:
             revenue_config = lag_config.get('revenue_lags', {})
             if revenue_config:
-                # Create revenue column if not exists
                 if 'revenue' not in self.df.columns:
                     self.df['revenue'] = self.df[self.target_col] * self.df['sell_price']
-                
+
                 revenue_lags = revenue_config.get('windows', [7, 14, 28])
                 revenue_dtype = revenue_config.get('dtype', 'float32')
-                
+
                 for lag in revenue_lags:
                     col_name = f'revenue_lag_{lag}'
-                    self.df[col_name] = (self.df.groupby(self.group_cols)['revenue']
-                                       .shift(lag)
-                                       .astype(revenue_dtype))
-        
+                    lagged = self.df.groupby(self.group_cols)['revenue'].shift(lag)
+                    self.df[col_name] = lagged.astype(revenue_dtype)
+
         logger.info(f"Added {len(sales_lags)} sales lag features")
         return self.df
-    
+
     def add_rolling_features(self) -> pd.DataFrame:
         """Add rolling statistical features based on configuration."""
         rolling_config = self.config.get('rolling_features', {})
         if not rolling_config.get('enabled', True):
             logger.info("Rolling features disabled in configuration")
             return self.df
-        
+
         logger.info("Adding M5 rolling features...")
-        
+
         windows = rolling_config.get('windows', [7, 14, 28])
+        # Force window sizes to int to avoid errors
+        windows = [int(w) for w in windows]
         min_periods = rolling_config.get('min_periods', 1)
         columns = rolling_config.get('columns', [self.target_col])
         statistics = rolling_config.get('statistics', [{'name': 'mean'}, {'name': 'std'}])
-        
+
         for col in columns:
             if col not in self.df.columns:
+                logger.warning(f"Column '{col}' not found in dataframe, skipping rolling features for this column.")
                 continue
-                
+
             for window in windows:
+                logger.debug(f"Using rolling window: {window} (type: {type(window)}) for column: {col}")
+
                 for stat_config in statistics:
                     stat_name = stat_config['name']
                     stat_dtype = stat_config.get('dtype', 'float32')
                     fill_na = stat_config.get('fill_na', None)
-                    
+
                     col_name = f'{col}_roll_{window}_{stat_name}'
-                    
+
                     try:
+                        grouped = self.df.groupby(self.group_cols, observed=False)[col]
+                        rolling_obj = grouped.rolling(window, min_periods=min_periods)
+
                         if stat_name == 'mean':
-                            result = (self.df.groupby(self.group_cols)[col]
-                                    .rolling(window, min_periods=min_periods)
-                                    .mean()
-                                    .reset_index(0, drop=True))
+                            result = rolling_obj.mean().reset_index(level=list(range(len(self.group_cols))), drop=True)
                         elif stat_name == 'std':
-                            result = (self.df.groupby(self.group_cols)[col]
-                                    .rolling(window, min_periods=min_periods)
-                                    .std()
-                                    .reset_index(0, drop=True))
+                            result = rolling_obj.std().reset_index(level=list(range(len(self.group_cols))), drop=True)
                             if fill_na is not None:
                                 result = result.fillna(fill_na)
                         elif stat_name == 'min':
-                            result = (self.df.groupby(self.group_cols)[col]
-                                    .rolling(window, min_periods=min_periods)
-                                    .min()
-                                    .reset_index(0, drop=True))
+                            result = rolling_obj.min().reset_index(level=list(range(len(self.group_cols))), drop=True)
                         elif stat_name == 'max':
-                            result = (self.df.groupby(self.group_cols)[col]
-                                    .rolling(window, min_periods=min_periods)
-                                    .max()
-                                    .reset_index(0, drop=True))
+                            result = rolling_obj.max().reset_index(level=list(range(len(self.group_cols))), drop=True)
                         else:
                             logger.warning(f"Unknown statistic: {stat_name}")
                             continue
-                        
+
                         self.df[col_name] = result.astype(stat_dtype)
                         logger.debug(f"Created rolling feature: {col_name}")
-                        
+
                     except Exception as e:
                         logger.error(f"Failed to create rolling feature {col_name}: {e}")
-        
+
         logger.info(f"Added rolling features for {len(windows)} windows")
         return self.df
+
     
     def add_walmart_specific_features(self) -> pd.DataFrame:
         """Add Walmart-specific features based on configuration."""
@@ -387,143 +397,89 @@ class M5WalmartFeaturePipeline:
                 col_name = f'snap_{cat.lower()}_interaction'
                 if (self.df['cat_id'] == cat).any():
                     self.df[col_name] = (self.df['snap_any'] * 
-                                       (self.df['cat_id'] == cat).astype('int8')).astype('int8')
+                                    (self.df['cat_id'] == cat).astype('int8')).astype('int8')
         
         # SNAP benefit timing features
         self.df['snap_benefit_period'] = ((self.df['snap_any'] == 1) & 
-                                         (self.df['day'] <= 10)).astype('int8')
+                                        (self.df['day'] <= 10)).astype('int8')
         
         logger.info(f"SNAP features added using columns: {available_snap}")
         return self.df
-    
-    def _add_price_features(self, price_config: Dict):
-        """Add price-related features."""
-        logger.info("Adding M5 price features...")
-        
-        price_col = price_config.get('price_column', 'sell_price')
-        if price_col not in self.df.columns:
-            logger.warning(f"Price column {price_col} not found")
-            return
-        
-        # Fill missing prices
-        self.df[price_col] = (self.df.groupby(self.group_cols)[price_col]
-                             .transform(lambda x: x.fillna(method='ffill').fillna(method='bfill')))
-        
-        # Price change features
-        change_config = price_config.get('change_features', {})
-        if change_config.get('enabled', True):
-            windows = change_config.get('windows', [1, 7, 14, 28])
-            thresholds = change_config.get('thresholds', {'increase': 0.05, 'decrease': -0.05})
             
-            for window in windows:
-                lag_col = f'price_lag_{window}'
-                change_col = f'price_change_{window}d'
-                
-                if lag_col in self.df.columns:
-                    self.df[change_col] = ((self.df[price_col] - self.df[lag_col]) / 
-                                         (self.df[lag_col] + 0.01)).astype('float32')
-                    
-                    # Price change flags
-                    self.df[f'price_increased_{window}d'] = (
-                        self.df[change_col] > thresholds['increase']).astype('int8')
-                    self.df[f'price_decreased_{window}d'] = (
-                        self.df[change_col] < thresholds['decrease']).astype('int8')
-        
-        # Relative price features
-        relative_config = price_config.get('relative_features', {})
-        if relative_config.get('enabled', True):
-            for comparison in relative_config.get('comparisons', []):
-                level_col = comparison['level']
-                name = comparison['name']
-                
-                if level_col in self.df.columns:
-                    avg_price = (self.df.groupby([level_col, self.date_col])[price_col]
-                               .transform('mean'))
-                    self.df[f'price_vs_{name}'] = (self.df[price_col] / 
-                                                  (avg_price + 0.01)).astype('float32')
-        
-        logger.info("Price features added successfully")
-        return self.df
-                                      
-    
     def add_price_features(self) -> pd.DataFrame:
-        """Add price-related features specific to retail forecasting."""
         logger.info("Adding M5 price features...")
-        
+
         if 'sell_price' not in self.df.columns:
             logger.warning("No sell_price column found - skipping price features")
             return self.df
-        
+
         # Fill missing prices with forward/backward fill within item-store groups
-        self.df['sell_price'] = (self.df.groupby(['store_id', 'item_id'])['sell_price']
-                                .transform(lambda x: x.fillna(method='ffill').fillna(method='bfill')))
-        
-        # Price change features
-        price_lags = self.config.get('lag_features', {}).get('price_lags', [1, 7, 14, 28])
-        
+        self.df['sell_price'] = (
+            self.df.groupby(['store_id', 'item_id'],observed=False)['sell_price']
+            .transform(lambda x: x.ffill().bfill())
+        )
+
+        # Extract windows and ensure they are ints
+        price_lags = self.config.get('price_features', {}).get('change_features', {}).get('windows', [1, 7, 14, 28])
+        price_lags = [int(w) for w in price_lags]  # <<< make sure they are ints
+
         for lag in price_lags:
             lag_col = f'price_lag_{lag}'
-            self.df[lag_col] = (self.df.groupby(['store_id', 'item_id'])['sell_price']
-                               .shift(lag).astype('float32'))
-            
+            self.df[lag_col] = (
+                self.df.groupby(['store_id', 'item_id'],observed=False)['sell_price']
+                .shift(lag)
+                .astype('float32')
+            )
+
             # Price change indicators
             change_col = f'price_change_{lag}d'
-            self.df[change_col] = ((self.df['sell_price'] - self.df[lag_col]) / 
-                                  (self.df[lag_col] + 0.01)).astype('float32')
-            
+            self.df[change_col] = (
+                (self.df['sell_price'] - self.df[lag_col]) /
+                (self.df[lag_col] + 0.01)
+            ).astype('float32')
+
             # Price increase/decrease flags
-            self.df[f'price_increased_{lag}d'] = (self.df[change_col] > 0.05).astype('int8')
-            self.df[f'price_decreased_{lag}d'] = (self.df[change_col] < -0.05).astype('int8')
-        
-        # Relative price features (compared to category/department averages)
-        if 'cat_id' in self.df.columns:
-            # Category-level price positioning
-            cat_avg_price = (self.df.groupby(['cat_id', 'date'])['sell_price']
-                           .transform('mean'))
-            self.df['price_vs_category'] = (self.df['sell_price'] / 
-                                          (cat_avg_price + 0.01)).astype('float32')
-            
-            # Price rank within category
-            self.df['price_rank_in_category'] = (self.df.groupby(['cat_id', 'date'])['sell_price']
-                                               .rank(pct=True)).astype('float32')
-        
-        if 'dept_id' in self.df.columns:
-            # Department-level price positioning
-            dept_avg_price = (self.df.groupby(['dept_id', 'date'])['sell_price']
-                            .transform('mean'))
-            self.df['price_vs_department'] = (self.df['sell_price'] / 
-                                            (dept_avg_price + 0.01)).astype('float32')
-        
-        # Price volatility (rolling standard deviation)
-        for window in [7, 28]:
+            increase_threshold = self.config.get('price_features', {}).get('change_features', {}).get('thresholds', {}).get('increase', 0.05)
+            decrease_threshold = self.config.get('price_features', {}).get('change_features', {}).get('thresholds', {}).get('decrease', -0.05)
+
+            self.df[f'price_increased_{lag}d'] = (self.df[change_col] > increase_threshold).astype('int8')
+            self.df[f'price_decreased_{lag}d'] = (self.df[change_col] < decrease_threshold).astype('int8')
+
+        # Price volatility (rolling std dev)
+        volatility_windows = self.config.get('price_features', {}).get('volatility_features', {}).get('windows', [7, 28])
+        volatility_windows = [int(w) for w in volatility_windows]  # <<< cast here too
+
+        for window in volatility_windows:
             vol_col = f'price_volatility_{window}d'
-            self.df[vol_col] = (self.df.groupby(['store_id', 'item_id'])['sell_price']
-                               .rolling(window, min_periods=1)
-                               .std()
-                               .reset_index(0, drop=True)
-                               .astype('float32'))
-        
+            self.df[vol_col] = (
+                self.df.groupby(['store_id', 'item_id'],observed=False)['sell_price']
+                .rolling(window, min_periods=1)
+                .std()
+                .reset_index(level=[0,1], drop=True)
+                .astype('float32')
+            )
+
         logger.info("M5 price features added successfully")
         return self.df
-    
+
+
     def add_event_features(self) -> pd.DataFrame:
         """Add event-related features from M5 calendar."""
         logger.info("Adding M5 event features...")
-        
+
         event_cols = ['event_name_1', 'event_type_1', 'event_name_2', 'event_type_2']
         available_events = [col for col in event_cols if col in self.df.columns]
-        
+
         if not available_events:
             logger.warning("No event columns found - skipping event features")
             return self.df
-        
+
         # Has any event flag
         self.df['has_event'] = 0
         for col in ['event_name_1', 'event_name_2']:
             if col in self.df.columns:
-                self.df['has_event'] = (self.df['has_event'] | 
-                                       self.df[col].notna()).astype('int8')
-        
+                self.df['has_event'] = (self.df['has_event'] | self.df[col].notna()).astype('int8')
+
         # Event type flags
         for col in ['event_type_1', 'event_type_2']:
             if col in self.df.columns:
@@ -532,24 +488,34 @@ class M5WalmartFeaturePipeline:
                     if pd.notna(event_type):
                         flag_col = f'event_{event_type.lower().replace(" ", "_")}'
                         self.df[flag_col] = (self.df[col] == event_type).astype('int8')
-        
+
         # Days since/until major events
         major_events = ['Christmas', 'Thanksgiving', 'Easter', 'SuperBowl']
         for event in major_events:
             event_col = f'event_{event.lower()}'
             if event_col in self.df.columns:
-                # Create days until/since event features
-                event_dates = self.df[self.df[event_col] == 1]['date']
+                event_dates = self.df.loc[self.df[event_col] == 1, 'date'].dropna().unique()
                 if len(event_dates) > 0:
-                    for event_date in event_dates:
-                        days_diff = (self.df['date'] - event_date).dt.days
-                        # Days until event (negative) or since event (positive)
-                        self.df[f'days_to_{event.lower()}'] = np.minimum(
-                            np.abs(days_diff), 30  # Cap at 30 days
-                        ) * np.sign(days_diff)
-        
+                    # Calculate days difference to each event date
+                    diffs = np.array([(self.df['date'] - pd.Timestamp(ed)).dt.days for ed in event_dates])
+                    # Shape: (num_events, num_rows)
+
+                    # Find closest event (min absolute difference)
+                    abs_diffs = np.abs(diffs)
+                    min_indices = np.argmin(abs_diffs, axis=0)
+                    min_abs_diff = abs_diffs[min_indices, range(len(self.df))]
+                    min_sign = np.sign(diffs[min_indices, range(len(self.df))])
+
+                    # Cap difference at 30 days and apply sign
+                    days_to_event = min_abs_diff.clip(max=30) * min_sign
+
+                    # Handle NaNs before casting to integer
+                    days_to_event_filled = pd.Series(days_to_event).fillna(0).astype('int16')
+                    self.df[f'days_to_{event.lower()}'] = days_to_event_filled.values
+
         logger.info(f"Event features added using columns: {available_events}")
         return self.df
+
 
     def handle_missing_values(self) -> pd.DataFrame:
         """Handle missing values based on configuration strategies."""
@@ -578,11 +544,11 @@ class M5WalmartFeaturePipeline:
                 # Apply the strategy
                 if strategy == 'forward_fill':
                     self.df[col] = (self.df.groupby(self.group_cols)[col]
-                                   .transform(lambda x: x.fillna(method='ffill').fillna(method='bfill')))
+                                   .transform(lambda x: x.ffill().fillna(method='bfill')))
                 elif strategy == 'group_forward_fill':
                     self.df[col] = (self.df.groupby(self.group_cols)[col]
-                                   .transform(lambda x: x.fillna(method='ffill')
-                                             .fillna(method='bfill').fillna(x.mean())))
+                                   .transform(lambda x: x.ffill()
+                                             .bfill().fillna(x.mean())))
                 elif strategy == 'zero_fill':
                     self.df[col] = self.df[col].fillna(0)
                 elif strategy == 'mean_fill':
@@ -601,7 +567,8 @@ class M5WalmartFeaturePipeline:
             # Process in smaller chunks to manage memory
             return self._add_hierarchical_features_chunked()
         else:
-            return self._add_hierarchical_features_full()
+            self.df = self._add_hierarchical_features_to_chunk(self.df)
+            return self.df
     
     def _add_hierarchical_features_chunked(self) -> pd.DataFrame:
         """Add hierarchical features with memory management."""
@@ -628,9 +595,6 @@ class M5WalmartFeaturePipeline:
         return self.df
     
     def _add_hierarchical_features_to_chunk(self, chunk: pd.DataFrame) -> pd.DataFrame:
-        """Add hierarchical features to a data chunk."""
-        
-        # Aggregation levels for M5
         agg_levels = [
             (['store_id'], 'store'),
             (['cat_id'], 'category'), 
@@ -640,85 +604,107 @@ class M5WalmartFeaturePipeline:
             (['store_id', 'dept_id'], 'store_dept')
         ]
         
-        # Rolling windows for aggregations
         windows = [7, 28]
         
         for group_cols, prefix in agg_levels:
-            # Check if all required columns exist
             if not all(col in chunk.columns for col in group_cols):
                 continue
             
             for window in windows:
-                # Sales aggregations
                 agg_col = f'{prefix}_sales_mean_{window}d'
-                chunk[agg_col] = (chunk.groupby(group_cols)['sales']
-                                 .rolling(window, min_periods=1)
-                                 .mean()
-                                 .reset_index(0, drop=True)
-                                 .astype('float32'))
+                try:
+                    # Use groupby + rolling directly
+                    result = (
+                        chunk.groupby(group_cols, observed=False)['sales']
+                            .rolling(window=window, min_periods=1)
+                            .mean()
+                            .reset_index(level=group_cols, drop=True)
+                            .astype('float32')
+                    )
+                    chunk[agg_col] = result
+                except Exception as e:
+                    logger.error(f"Failed to create {agg_col}: {e}")
                 
-                # Revenue aggregations (if price available)
                 if 'sell_price' in chunk.columns:
-                    chunk['revenue'] = chunk['sales'] * chunk['sell_price']
+                    if 'revenue' not in chunk.columns:
+                        chunk['revenue'] = chunk['sales'] * chunk['sell_price']
+                    
                     revenue_col = f'{prefix}_revenue_mean_{window}d'
-                    chunk[revenue_col] = (chunk.groupby(group_cols)['revenue']
-                                         .rolling(window, min_periods=1)
-                                         .mean()
-                                         .reset_index(0, drop=True)
-                                         .astype('float32'))
-        
+                    try:
+                        result = (
+                            chunk.groupby(group_cols, observed=False)['revenue']
+                                .rolling(window=window, min_periods=1)
+                                .mean()
+                                .reset_index(level=group_cols, drop=True)
+                                .astype('float32')
+                        )
+                        chunk[revenue_col] = result
+                    except Exception as e:
+                        logger.error(f"Failed to create {revenue_col}: {e}")
+
         return chunk
-    
+
+
+
     
     def add_rolling_features(self) -> pd.DataFrame:
-        """Add rolling statistical features for M5 dataset."""
-        logger.info("Adding M5 rolling features...")
-        
-        roll_cfg = self.config.get('rolling_features', {})
-        if not roll_cfg.get('enabled', True):
+        """Add rolling statistical features based on configuration."""
+        rolling_config = self.config.get('rolling_features', {})
+        if not rolling_config.get('enabled', True):
+            logger.info("Rolling features disabled in configuration")
             return self.df
-        
-        windows = roll_cfg.get('windows', [7, 14, 28, 56])
-        functions = roll_cfg.get('functions', ['mean', 'std'])
-        
-        for window in windows:
-            for func in functions:
-                col_name = f'sales_roll_{window}_{func}'
-                
-                try:
-                    if func == 'mean':
-                        self.df[col_name] = (self.df.groupby(['store_id', 'item_id'])['sales']
-                                            .rolling(window, min_periods=1)
-                                            .mean()
-                                            .reset_index(0, drop=True)
-                                            .astype('float32'))
-                    elif func == 'std':
-                        self.df[col_name] = (self.df.groupby(['store_id', 'item_id'])['sales']
-                                            .rolling(window, min_periods=1)
-                                            .std()
-                                            .reset_index(0, drop=True)
-                                            .fillna(0)  # Fill NaN std with 0
-                                            .astype('float32'))
-                    elif func == 'min':
-                        self.df[col_name] = (self.df.groupby(['store_id', 'item_id'])['sales']
-                                            .rolling(window, min_periods=1)
-                                            .min()
-                                            .reset_index(0, drop=True)
-                                            .astype('int16'))
-                    elif func == 'max':
-                        self.df[col_name] = (self.df.groupby(['store_id', 'item_id'])['sales']
-                                            .rolling(window, min_periods=1)
-                                            .max()
-                                            .reset_index(0, drop=True)
-                                            .astype('int16'))
-                    
-                    logger.debug(f"Created rolling feature: {col_name}")
-                    
-                except Exception as e:
-                    logger.error(f"Failed to create rolling feature {col_name}: {e}")
-        
+
+        logger.info("Adding M5 rolling features...")
+
+        windows = rolling_config.get('windows', [7, 14, 28])
+        windows = [int(w) for w in windows]
+        min_periods = rolling_config.get('min_periods', 1)
+        columns = rolling_config.get('columns', [self.target_col])
+        statistics = rolling_config.get('statistics', [{'name': 'mean'}, {'name': 'std'}])
+
+        for col in columns:
+            if col not in self.df.columns:
+                logger.warning(f"Column '{col}' not found in dataframe, skipping rolling features for this column.")
+                continue
+
+            for window in windows:
+                for stat_config in statistics:
+                    stat_name = stat_config['name']
+                    stat_dtype = stat_config.get('dtype', 'float32')
+                    fill_na = stat_config.get('fill_na', None)
+
+                    col_name = f'{col}_roll_{window}_{stat_name}'
+
+                    try:
+                        def rolling_stat(x):
+                            roll = x.rolling(window=window, min_periods=min_periods)
+                            if stat_name == 'mean':
+                                return roll.mean()
+                            elif stat_name == 'std':
+                                return roll.std()
+                            elif stat_name == 'min':
+                                return roll.min()
+                            elif stat_name == 'max':
+                                return roll.max()
+                            else:
+                                raise ValueError(f"Unsupported stat: {stat_name}")
+
+                        result = (self.df
+                                .groupby(self.group_cols, observed=False)[col]
+                                .transform(rolling_stat))
+
+                        if fill_na is not None:
+                            result = result.fillna(fill_na)
+
+                        self.df[col_name] = result.astype(stat_dtype)
+                        logger.debug(f"Created rolling feature: {col_name}")
+
+                    except Exception as e:
+                        logger.error(f"Failed to create rolling feature {col_name}: {e}")
+
         logger.info(f"Added rolling features for {len(windows)} windows")
         return self.df
+
     
     def add_advanced_features(self) -> pd.DataFrame:
         """Add advanced M5-specific features."""
@@ -732,26 +718,28 @@ class M5WalmartFeaturePipeline:
         ewm_spans = adv_cfg.get('ewm_spans', [7, 14, 28])
         for span in ewm_spans:
             col_name = f'sales_ewm_{span}'
-            self.df[col_name] = (self.df.groupby(['store_id', 'item_id'])['sales']
-                                .ewm(span=span, adjust=False)
-                                .mean()
-                                .reset_index(0, drop=True)
+            self.df[col_name] = (self.df.groupby(['store_id', 'item_id'],observed=False)['sales']
+                                .transform(lambda x : x.ewm(span=span,adjust=False).mean())
+    
                                 .astype('float32'))
         
         # Trend features
         if adv_cfg.get('trend_features', True):
-            # Linear trend within each time series
-            self.df['time_index'] = (self.df.groupby(['store_id', 'item_id'])
+            # Linear time index within each time series
+            self.df['time_index'] = (self.df.groupby(['store_id', 'item_id'],observed=False)
                                     .cumcount()
+                                    .fillna(0)
                                     .astype('int16'))
             
             # Sales velocity and acceleration
-            self.df['sales_velocity'] = (self.df.groupby(['store_id', 'item_id'])['sales']
+            self.df['sales_velocity'] = (self.df.groupby(['store_id', 'item_id'],observed=False)['sales']
                                         .diff()
+                                        .fillna(0)
                                         .astype('float32'))
             
-            self.df['sales_acceleration'] = (self.df.groupby(['store_id', 'item_id'])['sales_velocity']
+            self.df['sales_acceleration'] = (self.df.groupby(['store_id', 'item_id'],observed=False)['sales_velocity']
                                             .diff()
+                                            .fillna(0)
                                             .astype('float32'))
         
         # Ratio features
@@ -762,56 +750,81 @@ class M5WalmartFeaturePipeline:
                 if avg_col in self.df.columns:
                     ratio_col = f'sales_ratio_to_{window}d_avg'
                     self.df[ratio_col] = ((self.df['sales'] / (self.df[avg_col] + 1))
-                                         .astype('float32'))
+                                        .fillna(0)
+                                        .astype('float32'))
         
         # Item lifecycle features
-        self.df['days_since_first_sale'] = (self.df.groupby(['store_id', 'item_id'])['date']
-                                           .rank(method='min')
-                                           .astype('int16'))
+        self.df['days_since_first_sale'] = (self.df.groupby(['store_id', 'item_id'],observed=False)['date']
+                                        .rank(method='min')
+                                        .fillna(0)
+                                        .astype('int16'))
         
         # Zero sales patterns
         self.df['zero_sales_flag'] = (self.df['sales'] == 0).astype('int8')
         
         # Consecutive zero sales days
-        zero_groups = (self.df.groupby(['store_id', 'item_id'])['zero_sales_flag']
-                      .apply(lambda x: (x != x.shift()).cumsum()))
-        
-        self.df['consecutive_zero_days'] = (self.df.groupby(['store_id', 'item_id', zero_groups])
-                                           .cumcount()
-                                           .where(self.df['zero_sales_flag'] == 1, 0)
-                                           .astype('int8'))
+        zero_groups = (
+            self.df.groupby(['store_id', 'item_id'])['zero_sales_flag']
+            .transform(lambda x: (x != x.shift()).cumsum())
+            .fillna(0)
+            .astype('int16')  # optional, but keeps it compact
+            )
+            
+        self.df['consecutive_zero_days'] = (self.df.groupby(['store_id', 'item_id', zero_groups],observed=False)
+                                        .cumcount()
+                                        .where(self.df['zero_sales_flag'] == 1, 0)
+                                        .fillna(0)
+                                        .astype('int8'))
         
         logger.info("M5 advanced features added successfully")
         return self.df
-    
+
     def optimize_dtypes(self) -> pd.DataFrame:
         """Optimize data types for memory efficiency."""
         logger.info("Optimizing data types for memory efficiency...")
-        
+
+        import gc
+
         # Integer downcasting
         int_cols = self.df.select_dtypes(include=['int']).columns
         for col in int_cols:
-            if col.endswith('_flag') or 'is_' in col:
-                self.df[col] = self.df[col].astype('int8')
-            elif 'lag' in col and 'sales' in col:
-                self.df[col] = pd.to_numeric(self.df[col], downcast='integer')
-            elif col in ['year', 'month', 'day', 'dayofweek']:
-                self.df[col] = self.df[col].astype('int16')
-        
+            try:
+                if col.endswith('_flag') or 'is_' in col:
+                    self.df[col] = self.df[col].astype('int8')
+                elif 'lag' in col and 'sales' in col:
+                    self.df[col] = pd.to_numeric(self.df[col], downcast='integer')
+                elif col in ['year', 'month', 'day', 'dayofweek']:
+                    self.df[col] = self.df[col].astype('int16')
+            except Exception as e:
+                logger.warning(f"Could not downcast integer column '{col}': {e}")
+            finally:
+                gc.collect()
+
         # Float downcasting
         float_cols = self.df.select_dtypes(include=['float']).columns
         for col in float_cols:
-            self.df[col] = pd.to_numeric(self.df[col], downcast='float')
-        
-        # Categorical encoding for string columns with limited unique values
+            try:
+                self.df[col] = self.df[col].astype('float32')
+            except Exception as e:
+                logger.warning(f"Could not downcast float column '{col}': {e}")
+            finally:
+                gc.collect()
+
+        # Categorical encoding
         str_cols = self.df.select_dtypes(include=['object']).columns
         for col in str_cols:
             unique_ratio = self.df[col].nunique() / len(self.df)
-            if unique_ratio < 0.5:  # Less than 50% unique values
-                self.df[col] = self.df[col].astype('category')
-        
+            if unique_ratio < 0.5:
+                try:
+                    self.df[col] = self.df[col].astype('category')
+                except Exception as e:
+                    logger.warning(f"Could not convert '{col}' to category: {e}")
+            gc.collect()
+
         logger.info("Data type optimization completed")
         return self.df
+
+
     
     def run(self) -> pd.DataFrame:
         """Run the complete M5 feature engineering pipeline."""
@@ -820,6 +833,10 @@ class M5WalmartFeaturePipeline:
         start_time = datetime.now()
         
         try:
+
+            # Step 9: Handle missing values
+            self.df = self.handle_missing_values()
+
             # Step 1: M5-specific date features
             self.df = self.add_date_features()
             
@@ -847,12 +864,10 @@ class M5WalmartFeaturePipeline:
             
             # Step 8: Advanced features
             self.df = self.add_advanced_features()
-            
-            # Step 9: Handle missing values
-            self.df = self.handle_missing_values()
+
             
             # Step 10: Optimize data types for memory efficiency
-            self.df = self.optimize_dtypes()
+            #self.df = self.optimize_dtypes()
             
             duration = datetime.now() - start_time
             logger.info(f"M5 Feature Pipeline completed in {duration.total_seconds():.1f} seconds")

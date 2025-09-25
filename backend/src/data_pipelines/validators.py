@@ -116,84 +116,113 @@ class DataValidator:
         else:
             return 0
 
-def create_pandera_schema(self) -> DataFrameSchema:
-    schema_dict = {}
-    for col, dtype in self.data_types.items():
-        checks = []
-        if col in self.value_ranges:
-            r = self.value_ranges[col]
-            if "min" in r:
-                checks.append(Check.greater_than_or_equal_to(r["min"]))
-            if "max" in r:
-                checks.append(Check.less_than_or_equal_to(r["max"]))
+    def create_pandera_schema(self) -> DataFrameSchema:
+        schema_dict = {}
+        for col, dtype in self.data_types.items():
+            checks = []
+            if col in self.value_ranges:
+                r = self.value_ranges[col]
+                if "min" in r:
+                    checks.append(Check.greater_than_or_equal_to(r["min"]))
+                if "max" in r:
+                    checks.append(Check.less_than_or_equal_to(r["max"]))
 
-        pandera_dtype = "datetime64" if dtype == "datetime64[ns]" else dtype
-        schema_dict[col] = Column(pandera_dtype, checks=checks, nullable=True)
+            pandera_dtype = "datetime64" if dtype == "datetime64[ns]" else dtype
+            schema_dict[col] = Column(pandera_dtype, checks=checks, nullable=True)
 
-    return DataFrameSchema(schema_dict)
+        return DataFrameSchema(schema_dict)
 
-def validate_schema(self, df: pd.DataFrame) -> Tuple[bool, List[str]]:
-    schema = self.create_pandera_schema()
-    errors = []
-    try:
-        schema.validate(df, lazy=True)
-        return True, []
-    except pa.errors.SchemaErrors as e:
-        logger.error("Schema validation failed")
-        errors = str(e).split("\n")
-        return False, errors
 
-def validate_time_series(self, df: pd.DataFrame, date_col: str = "date",
-                         group_cols: Optional[List[str]] = None,
-                         expected_freq: str = "D") -> Dict[str, Any]:
-    ts_report = {"date_range": {}, "frequency_issues": [], "gaps": []}
-    df[date_col] = pd.to_datetime(df[date_col])
+    def validate_time_series(self, df: pd.DataFrame, date_col: str = "date",
+                            group_cols: Optional[List[str]] = None,
+                            expected_freq: str = "D") -> Dict[str, Any]:
+        ts_report = {"date_range": {}, "frequency_issues": [], "gaps": []}
+        df[date_col] = pd.to_datetime(df[date_col])
 
-    ts_report["date_range"] = {
-        "start": df[date_col].min().strftime("%Y-%m-%d"),
-        "end": df[date_col].max().strftime("%Y-%m-%d"),
-        "days": (df[date_col].max() - df[date_col].min()).days
-    }
+        ts_report["date_range"] = {
+            "start": df[date_col].min().strftime("%Y-%m-%d"),
+            "end": df[date_col].max().strftime("%Y-%m-%d"),
+            "days": (df[date_col].max() - df[date_col].min()).days
+        }
 
-    if group_cols:
-        for group, group_df in df.groupby(group_cols):
-            missing = pd.date_range(group_df[date_col].min(),
-                                    group_df[date_col].max(),
-                                    freq=expected_freq).difference(group_df[date_col])
+        if group_cols:
+            for group, group_df in df.groupby(group_cols):
+                missing = pd.date_range(group_df[date_col].min(),
+                                        group_df[date_col].max(),
+                                        freq=expected_freq).difference(group_df[date_col])
+                if len(missing) > 0:
+                    ts_report["gaps"].append({
+                        "group": group,
+                        "gap_count": len(missing),
+                        "missing_dates": missing.strftime("%Y-%m-%d").tolist()
+                    })
+                    logger.warning(f"Group {group}: {len(missing)} missing {expected_freq} dates")
+        else:
+            missing = pd.date_range(df[date_col].min(),
+                                    df[date_col].max(),
+                                    freq=expected_freq).difference(df[date_col])
             if len(missing) > 0:
-                ts_report["gaps"].append({
-                    "group": group,
+                ts_report["gaps"] = {
                     "gap_count": len(missing),
                     "missing_dates": missing.strftime("%Y-%m-%d").tolist()
-                })
-                logger.warning(f"Group {group}: {len(missing)} missing {expected_freq} dates")
-    else:
-        missing = pd.date_range(df[date_col].min(),
-                                df[date_col].max(),
-                                freq=expected_freq).difference(df[date_col])
-        if len(missing) > 0:
-            ts_report["gaps"] = {
-                "gap_count": len(missing),
-                "missing_dates": missing.strftime("%Y-%m-%d").tolist()
+                }
+                logger.warning(f"Found {len(missing)} missing {expected_freq} dates")
+
+        return ts_report
+
+    def validate_prediction_data(self, df: pd.DataFrame, 
+                               training_stats: Dict[str, Any]) -> Tuple[bool, List[str]]:
+        errors = []
+        
+        # Check if prediction data has same schema
+        is_valid, schema_errors = self.validate_schema(df)
+        errors.extend(schema_errors)
+        
+        # Check for distribution shift
+        for col in df.select_dtypes(include=[np.number]).columns:
+            if col in training_stats:
+                train_mean = training_stats[col]['mean']
+                train_std = training_stats[col]['std']
+                
+                pred_mean = df[col].mean()
+                pred_std = df[col].std()
+                
+                # Simple check for significant distribution shift
+                if abs(pred_mean - train_mean) > 3 * train_std:
+                    errors.append(
+                        f"Potential distribution shift in {col}: "
+                        f"mean changed from {train_mean:.2f} to {pred_mean:.2f}"
+                    )
+        
+        return len(errors) == 0, errors
+    
+    def generate_validation_report(self, df: pd.DataFrame) -> Dict[str, Any]:
+        logger.info("Starting data validation")
+        
+        report = {
+            "timestamp": datetime.now().isoformat(),
+            "dataset_info": {
+                "rows": len(df),
+                "columns": len(df.columns),
+                "memory_usage": df.memory_usage(deep=True).sum() / 1024**2  # MB
             }
-            logger.warning(f"Found {len(missing)} missing {expected_freq} dates")
-
-    return ts_report
-
-def validate_prediction_data(self, df: pd.DataFrame, training_stats: Dict[str, Any]) -> Tuple[bool, List[str]]:
-    errors = []
-    is_valid, schema_errors = self.validate_schema(df)
-    errors.extend(schema_errors)
-
-    for col in df.select_dtypes(include=[np.number]).columns:
-        if col in training_stats:
-            train_mean, train_std = training_stats[col]["mean"], training_stats[col]["std"]
-            pred_mean, pred_std = df[col].mean(), df[col].std()
-            if abs(pred_mean - train_mean) > 3 * train_std:
-                msg = f"Drift in {col}: mean {train_mean:.2f} → {pred_mean:.2f}"
-                errors.append(msg)
-                logger.warning(msg)
-
-    return len(errors) == 0, errors
+        }
+        
+        # Schema validation
+        is_valid, schema_errors = self.validate_schema(df)
+        report["schema_validation"] = {
+            "is_valid": is_valid,
+            "errors": schema_errors
+        }
+        
+        # Data quality validation
+        report["data_quality"] = self.validate_data_quality(df)
+        
+        # Time series validation
+        if 'date' in df.columns:
+            report["time_series_validation"] = self.validate_time_series(df)
+        
+        logger.info(f"Validation complete. Valid: {is_valid}")
+        return report
 
 
