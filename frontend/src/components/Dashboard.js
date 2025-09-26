@@ -47,31 +47,7 @@ import StorePerformance from './StorePerformance';
 import SimulationPanel from './SimulationPanel';
 import WeatherWidget from './WeatherWidget';
 import { fetchForecast, fetchInventorySuggestions, fetchStorePerformance } from '../services/api';
-
-function TabPanel({ children, value, index, ...other }) {
-  return (
-    <div
-      role="tabpanel"
-      hidden={value !== index}
-      id={`simple-tabpanel-${index}`}
-      aria-labelledby={`simple-tab-${index}`}
-      {...other}
-    >
-      {value === index && (
-        <Box sx={{ 
-          p: 3,
-          animation: 'fadeIn 0.5s ease-in-out',
-          '@keyframes fadeIn': {
-            '0%': { opacity: 0, transform: 'translateY(10px)' },
-            '100%': { opacity: 1, transform: 'translateY(0)' }
-          }
-        }}>
-          {children}
-        </Box>
-      )}
-    </div>
-  );
-}
+import SimpleChatbot from './SimpleChatbot';
 
 function Dashboard() {
   const [selectedSKUs, setSelectedSKUs] = useState(['SKU001', 'SKU002']);
@@ -766,8 +742,31 @@ function Dashboard() {
           </TabPanel>
         </Paper>
       </Container>
+      <div className="chatbot-container">
+        <SimpleChatbot />
+      </div>
     </Box>
   );
 }
 
-export default Dashboard; 
+function TabPanel(props) {
+  const { children, value, index, ...other } = props;
+
+  return (
+    <div
+      role="tabpanel"
+      hidden={value !== index}
+      id={`simple-tabpanel-${index}`}
+      aria-labelledby={`simple-tab-${index}`}
+      {...other}
+    >
+      {value === index && (
+        <Box sx={{ p: 3 }}>
+          {children}
+        </Box>
+      )}
+    </div>
+  );
+}
+
+export default Dashboard;
