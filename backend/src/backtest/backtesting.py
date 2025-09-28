@@ -26,7 +26,6 @@ from abc import ABC, abstractmethod
 
 # ML libraries
 import lightgbm as lgb
-from prophet import Prophet
 from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from sklearn.preprocessing import LabelEncoder
@@ -45,20 +44,20 @@ class BacktestConfig:
     """Configuration for backtesting parameters."""
     # Time periods
     train_start_date: str = "2013-01-01"
-    validation_start_date: str = "2015-01-01" 
+    validation_start_date: str = "2013-03-01" 
     test_start_date: str = "2015-06-01"
-    test_end_date: str = "2016-05-22"
+    test_end_date: str = "2015-09-01"
     
     # Rolling window settings
-    initial_train_days: int = 730  # 2 years initial training
-    step_size_days: int = 28       # Retrain monthly
-    min_train_days: int = 365      # Minimum training period
+    initial_train_days: int = 90  # 2 years initial training
+    step_size_days: int = 20       # Retrain monthly
+    min_train_days: int = 30      # Minimum training period
     
     # Forecast horizons
     horizons: List[int] = field(default_factory=lambda: [7, 14, 28])
     
     # Model settings
-    models_to_evaluate: List[str] = field(default_factory=lambda: ['lightgbm', 'prophet', 'seasonal_naive'])
+    models_to_evaluate: List[str] = field(default_factory=lambda: ['lightgbm', 'seasonal_naive'])
     hyperparameter_tuning: bool = False
     
     # Evaluation settings
@@ -288,93 +287,6 @@ class M5LightGBMModel(BaseModel):
         self.prediction_time = time.time() - start_time
         return predictions
 
-class M5ProphetModel(BaseModel):
-    """Prophet model adapted for M5 retail data."""
-    
-    def __init__(self, name: str = "Prophet", **prophet_params):
-        super().__init__(name)
-        self.prophet_params = {
-            'growth': 'linear',
-            'daily_seasonality': False,
-            'weekly_seasonality': True,
-            'yearly_seasonality': True,
-            'seasonality_mode': 'multiplicative',
-            'changepoint_prior_scale': 0.05,
-            'seasonality_prior_scale': 10.0
-        }
-        self.prophet_params.update(prophet_params)
-        self.models = {}  # Store separate models for each time series
-    
-    def fit(self, X: pd.DataFrame, y: pd.Series, **kwargs):
-        """Fit Prophet models for each time series."""
-        start_time = time.time()
-        
-        # Combine data
-        df = X.copy()
-        df['y'] = y
-        
-        # Group by time series
-        n_models_trained = 0
-        max_models = kwargs.get('max_models', 100)  # Limit for memory
-        
-        for (store_id, item_id), group in df.groupby(['store_id', 'item_id']):
-            if n_models_trained >= max_models:
-                break
-                
-            if len(group) < 30:  # Need sufficient data
-                continue
-            
-            # Prepare Prophet data format
-            prophet_df = pd.DataFrame({
-                'ds': group['date'],
-                'y': group['y']
-            })
-            
-            # Fit Prophet model
-            try:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    model = Prophet(**self.prophet_params)
-                    model.fit(prophet_df)
-                    
-                self.models[(store_id, item_id)] = model
-                n_models_trained += 1
-                
-            except Exception as e:
-                logger.warning(f"Failed to fit Prophet for {store_id}-{item_id}: {e}")
-                continue
-        
-        logger.info(f"Trained {n_models_trained} Prophet models")
-        
-        self.fitted = True
-        self.training_time = time.time() - start_time
-        return self
-    
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        """Make predictions with Prophet models."""
-        if not self.fitted:
-            raise ValueError("Model must be fitted before predicting")
-        
-        start_time = time.time()
-        predictions = np.zeros(len(X))
-        
-        for i, (store_id, item_id) in enumerate(zip(X['store_id'], X['item_id'])):
-            if (store_id, item_id) in self.models:
-                model = self.models[(store_id, item_id)]
-                
-                # Create future dataframe
-                future_df = pd.DataFrame({'ds': [X.iloc[i]['date']]})
-                
-                try:
-                    forecast = model.predict(future_df)
-                    predictions[i] = max(0, forecast['yhat'].iloc[0])
-                except:
-                    predictions[i] = 0
-            else:
-                predictions[i] = 0
-        
-        self.prediction_time = time.time() - start_time
-        return predictions
 
 class M5SeasonalNaiveModel(BaseModel):
     """Seasonal naive model - strong baseline for retail data."""
@@ -509,8 +421,7 @@ class M5BacktestEngine:
         """Create model instance."""
         if model_name == 'lightgbm':
             return M5LightGBMModel()
-        elif model_name == 'prophet':
-            return M5ProphetModel()
+
         elif model_name == 'seasonal_naive':
             return M5SeasonalNaiveModel()
         else:
@@ -766,166 +677,3 @@ class M5BacktestEngine:
                            f"sMAPE={row['smape']:.2f}%\n")
         
         logger.info(f"Report saved: {report_path}")
-
-# -------------------------------
-# Main Runner Function
-# -------------------------------
-
-def run_m5_backtest(data_path: str, config_path: str = None, 
-                   output_dir: str = "backtest_results") -> pd.DataFrame:
-    """
-    Main function to run M5 backtesting.
-    
-    Args:
-        data_path: Path to processed M5 features data
-        config_path: Path to backtest configuration (optional)
-        output_dir: Output directory for results
-    
-    Returns:
-        Summary DataFrame with results
-    """
-    
-    # Load data
-    logger.info(f"Loading data from {data_path}")
-    df = pd.read_parquet(data_path)
-    
-    # Load or create configuration
-    if config_path:
-        with open(config_path) as f:
-            import yaml
-            config_dict = yaml.safe_load(f)
-        config = BacktestConfig(**config_dict)
-    else:
-        config = BacktestConfig()
-    
-    # Initialize and run backtesting
-    backtest_engine = M5BacktestEngine(config, output_dir)
-    results_df = backtest_engine.run_backtest(df)
-    
-    return results_df
-
-if __name__ == "__main__":
-    import argparse
-    import sys
-    from pathlib import Path
-    
-    parser = argparse.ArgumentParser(
-        description="M5 Walmart Backtesting Framework",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  %(prog)s --input data/features/m5/m5_features.parquet
-  %(prog)s --input data/features/m5/m5_features.parquet --config configs/backtest.yaml
-  %(prog)s --input data/features/m5/m5_features.parquet --output-dir results/backtest_v1
-  %(prog)s --input data/features/m5/m5_features.parquet --models lightgbm seasonal_naive
-        """
-    )
-    
-    parser.add_argument('--input', required=True,
-                       help='Input parquet file with M5 features')
-    parser.add_argument('--config',
-                       help='Backtest configuration YAML file')
-    parser.add_argument('--output-dir', default='backtest_results',
-                       help='Output directory for results')
-    parser.add_argument('--models', nargs='+', 
-                       choices=['lightgbm', 'prophet', 'seasonal_naive'],
-                       help='Models to evaluate')
-    parser.add_argument('--horizons', type=int, nargs='+',
-                       help='Forecast horizons in days')
-    parser.add_argument('--quick-test', action='store_true',
-                       help='Run quick test with limited data')
-    parser.add_argument('--debug', action='store_true',
-                       help='Enable debug logging')
-    
-    args = parser.parse_args()
-    
-    # Setup logging
-    log_level = logging.DEBUG if args.debug else logging.INFO
-    logging.basicConfig(
-        level=log_level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler(f'{args.output_dir}/backtest.log')
-        ]
-    )
-    
-    # Create output directory
-    Path(args.output_dir).mkdir(exist_ok=True)
-    
-    logger = logging.getLogger(__name__)
-    
-    try:
-        # Validate input file
-        if not Path(args.input).exists():
-            logger.error(f"Input file not found: {args.input}")
-            sys.exit(1)
-        
-        # Load data
-        logger.info(f"Loading data from {args.input}")
-        df = pd.read_parquet(args.input)
-        
-        # Quick test mode - sample data
-        if args.quick_test:
-            logger.info("Running in quick test mode - sampling data")
-            # Sample by time series to maintain structure
-            unique_series = df[['store_id', 'item_id']].drop_duplicates()
-            sample_series = unique_series.sample(n=min(100, len(unique_series)), random_state=42)
-            df = df.merge(sample_series, on=['store_id', 'item_id'], how='inner')
-            logger.info(f"Sampled data shape: {df.shape}")
-        
-        # Create configuration
-        if args.config and Path(args.config).exists():
-            import yaml
-            with open(args.config) as f:
-                config_dict = yaml.safe_load(f)
-            config = BacktestConfig(**config_dict)
-        else:
-            config = BacktestConfig()
-        
-        # Override config with command line arguments
-        if args.models:
-            config.models_to_evaluate = args.models
-        if args.horizons:
-            config.horizons = args.horizons
-        
-        # Quick test modifications
-        if args.quick_test:
-            config.horizons = [7, 14]  # Fewer horizons
-            config.models_to_evaluate = ['lightgbm', 'seasonal_naive']  # Faster models
-            config.test_start_date = "2016-04-01"  # Shorter test period
-        
-        logger.info(f"Configuration: {len(config.horizons)} horizons, {len(config.models_to_evaluate)} models")
-        
-        # Run backtesting
-        backtest_engine = M5BacktestEngine(config, args.output_dir)
-        results_df = backtest_engine.run_backtest(df)
-        
-        # Print summary
-        print("\n" + "=" * 60)
-        print("M5 BACKTESTING RESULTS SUMMARY")
-        print("=" * 60)
-        print(results_df.round(4).to_string(index=False))
-        print("=" * 60)
-        
-        # Find best model
-        if not results_df.empty:
-            best_rmse_idx = results_df['rmse'].idxmin()
-            best_model = results_df.iloc[best_rmse_idx]
-            print(f"\nBest RMSE: {best_model['model']} (H{best_model['horizon']}) = {best_model['rmse']:.4f}")
-            
-            best_mase_idx = results_df['mase'].idxmin()
-            best_model_mase = results_df.iloc[best_mase_idx]
-            print(f"Best MASE: {best_model_mase['model']} (H{best_model_mase['horizon']}) = {best_model_mase['mase']:.4f}")
-        
-        logger.info(f"Backtesting completed successfully! Results saved to {args.output_dir}")
-        
-    except KeyboardInterrupt:
-        logger.info("Backtesting interrupted by user")
-        sys.exit(1)
-    except Exception as e:
-        logger.error(f"Backtesting failed: {e}")
-        if args.debug:
-            import traceback
-            logger.error(traceback.format_exc())
-        sys.exit(1)

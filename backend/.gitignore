@@ -184,5 +184,5 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
-dvc-storage/files/md5/d1/bdc37d19ed9178b7d89c6ce69dedbb
-dvc-storage/files/md5/6e/dff35c01a6eb455cad830c85897e20
+dvc-storage/
+backtest_results/

@@ -78,17 +78,6 @@ Examples:
     
     args = parser.parse_args()
     
-    # Setup logging
-    log_level = logging.DEBUG if args.debug else logging.INFO
-    logging.basicConfig(
-        level=log_level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler(f'{args.output_dir}/backtest.log')
-        ]
-    )
-    
     # Create output directory
     Path(args.output_dir).mkdir(exist_ok=True)
     

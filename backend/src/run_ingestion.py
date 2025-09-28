@@ -20,55 +20,41 @@ from pathlib import Path
 from datetime import datetime
 import psutil
 import gc
+from src.logger import logger
+from src.exception import CustomException
+
+logger = logging.getLogger(__name__)
+
 
 # Add project root to path
 sys.path.append(str(Path(__file__).parent))
 
 # Import your M5 processor
-from src.data_pipelines.production_ingester import M5DatasetProcessor, M5DatasetConfig
+from src.data_pipelines.ingester import M5DatasetProcessor, M5DatasetConfig
 
-def setup_logging(debug: bool = False) -> logging.Logger:
-    """Setup logging configuration."""
-    log_level = logging.DEBUG if debug else logging.INFO
-    
-    # Create logs directory
-    log_dir = Path("data/logs")
-    log_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Setup logging
-    logging.basicConfig(
-        level=log_level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_dir / f"m5_pipeline_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"),
-            logging.StreamHandler()
-        ]
-    )
-    
-    return logging.getLogger(__name__)
 
 def check_system_resources():
     """Check available system resources."""
     memory = psutil.virtual_memory()
     disk = psutil.disk_usage('.')
     
-    logger.info("System Resources:")
-    logger.info(f"  Available RAM: {memory.available / 1024**3:.1f} GB / {memory.total / 1024**3:.1f} GB")
-    logger.info(f"  Available Disk: {disk.free / 1024**3:.1f} GB / {disk.total / 1024**3:.1f} GB")
-    logger.info(f"  CPU Count: {psutil.cpu_count()}")
+    logger.info("🖥️ System Resources:")
+    logger.info(f"🧠 Available RAM: {memory.available / 1024**3:.1f} GB / {memory.total / 1024**3:.1f} GB")
+    logger.info(f"💾 Available Disk: {disk.free / 1024**3:.1f} GB / {disk.total / 1024**3:.1f} GB")
+    logger.info(f"⚙️ CPU Count: {psutil.cpu_count()}")
     
     # Warnings for low resources
     if memory.available / 1024**3 < 2:
-        logger.warning(" Low available memory (< 2GB). Consider closing other applications.")
+        logger.warning("⚠️ Low available memory (< 2GB). Consider closing other applications.")
     
     if disk.free / 1024**3 < 5:
-        logger.warning("Low available disk space (< 5GB). Consider cleaning up disk space.")
+        logger.warning("⚠️ Low available disk space (< 5GB). Consider cleaning up disk space.")
     
     return memory.available / 1024**3
 
 def validate_data_files(config: M5DatasetConfig) -> bool:
     """Validate that required M5 data files exist."""
-    logger.info("Validating M5 data files...")
+    logger.info("🔍 Validating M5 data files...")
     
     required_files = [
         config.sales_train_path,
@@ -82,17 +68,17 @@ def validate_data_files(config: M5DatasetConfig) -> bool:
             missing_files.append(file_path)
         else:
             size_mb = Path(file_path).stat().st_size / (1024 * 1024)
-            logger.info(f"✓ {Path(file_path).name}: {size_mb:.1f} MB")
+            logger.info(f"✅ {Path(file_path).name}: {size_mb:.1f} MB")
     
     if missing_files:
-        logger.error("Missing required files:")
+        logger.error("❌ Missing required files:")
         for file_path in missing_files:
             logger.error(f"  - {file_path}")
-        logger.error("\nPlease download M5 dataset files from:")
+        logger.error("📥 Please download M5 dataset files from:")
         logger.error("https://www.kaggle.com/competitions/m5-forecasting-accuracy/data")
         return False
     
-    logger.info("All required files found")
+    logger.info("🎉 All required files found")
     return True
 
 def create_sample_dataset(config: M5DatasetConfig, sample_size: int = 10000):
@@ -151,8 +137,7 @@ def create_sample_dataset(config: M5DatasetConfig, sample_size: int = 10000):
         
     except Exception as e:
         logger.error(f"Failed to create sample dataset: {e}")
-        raise
-
+        raise CustomException(e, sys) from e
 def main():
     """Main execution function."""
     parser = argparse.ArgumentParser(
@@ -183,11 +168,7 @@ Examples:
     
     args = parser.parse_args()
     
-    # Setup logging
-    global logger
-    logger = setup_logging(args.debug)
-    
-    logger.info("Starting M5 Walmart Dataset Processing Pipeline")
+    logger.info("🚀 Starting M5 Walmart Dataset Processing Pipeline")
     logger.info("=" * 60)
     
     try:
@@ -197,13 +178,13 @@ Examples:
         # Adjust memory limit based on available resources
         if args.memory_limit > available_memory * 0.8:
             recommended_limit = max(1.0, available_memory * 0.6)
-            logger.warning(f"Memory limit ({args.memory_limit}GB) is high for available RAM.")
-            logger.warning(f"   Recommended: --memory-limit {recommended_limit:.1f}")
+            logger.warning(f"⚠️ Memory limit ({args.memory_limit}GB) is high for available RAM.")
+            logger.warning(f"   💡 Recommended: --memory-limit {recommended_limit:.1f}")
             
             # Auto-adjust if not enough memory
             if available_memory < 3:
                 args.memory_limit = max(1.0, available_memory * 0.6)
-                logger.info(f"Auto-adjusting memory limit to {args.memory_limit:.1f}GB")
+                logger.info(f"🔧 Auto-adjusting memory limit to {args.memory_limit:.1f}GB")
         
         # Create configuration
         config = M5DatasetConfig(
@@ -217,7 +198,7 @@ Examples:
                 return 1
             
             config = create_sample_dataset(config, args.sample_size)
-            logger.info("Processing sample dataset...")
+            logger.info("🧪 Processing sample dataset...")
         else:
             # Validate full dataset files
             if not validate_data_files(config):
@@ -227,7 +208,7 @@ Examples:
         processor = M5DatasetProcessor(config)
         
         if args.validate_only:
-            logger.info("Running validation-only mode...")
+            logger.info("🔍 Running validation-only mode...")
             
             # Load data without full processing
             if not processor.validate_file_integrity():
@@ -236,23 +217,23 @@ Examples:
             calendar = processor.load_calendar_data()
             prices = processor.load_prices_data()
             
-            logger.info("Data validation completed successfully")
-            logger.info("Data Overview:")
-            logger.info(f"  Calendar: {len(calendar)} days")
-            logger.info(f"  Prices: {len(prices)} price points")
+            logger.info("✅ Data validation completed successfully")
+            logger.info("📊 Data Overview:")
+            logger.info(f"  📅 Calendar: {len(calendar)} days")
+            logger.info(f"  💵 Prices: {len(prices)} price points")
             
         else:
             # Run full processing pipeline
-            logger.info("Running full processing pipeline...")
+            logger.info("🏃 Running full processing pipeline...")
             
             df, quality_metrics = processor.run_full_pipeline()
             
-            logger.info("Processing completed successfully!")
-            logger.info("Final Results:")
-            logger.info(f"Dataset shape: {df.shape}")
-            logger.info(f"Date range: {df['date'].min()} to {df['date'].max()}")
-            logger.info(f"Quality score: {quality_metrics.data_completeness_score:.3f}")
-            logger.info(f"Time series: {quality_metrics.total_time_series:,}")
+            logger.info("🎉 Processing completed successfully!")
+            logger.info("📈 Final Results:")
+            logger.info(f"  Dataset shape: {df.shape}")
+            logger.info(f"  Date range: {df['date'].min()} to {df['date'].max()}")
+            logger.info(f"  Quality score: {quality_metrics.data_completeness_score:.3f}")
+            logger.info(f"  Time series: {quality_metrics.total_time_series:,}")
             
             # Memory cleanup
             del df
@@ -261,19 +242,19 @@ Examples:
         return 0
         
     except KeyboardInterrupt:
-        logger.info("\nProcessing interrupted by user")
+        logger.info("\n🛑 Processing interrupted by user")
         return 1
         
     except Exception as e:
-        logger.error(f"Processing failed: {e}")
-        logger.error("Check the log file for detailed error information")
+        logger.error(f"❌ Processing failed: {e}")
+        logger.error("📄 Check the log file for detailed error information")
         return 1
         
     finally:
         # Final memory cleanup
         gc.collect()
         final_memory = psutil.virtual_memory()
-        logger.info(f"Final memory usage: {(final_memory.total - final_memory.available) / 1024**3:.1f} GB")
+        logger.info(f"💾 Final memory usage: {(final_memory.total - final_memory.available) / 1024**3:.1f} GB")
 
 if __name__ == "__main__":
     exit(main())
