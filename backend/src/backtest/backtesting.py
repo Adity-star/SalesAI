@@ -55,7 +55,7 @@ class BacktestConfig:
     horizons: List[int] = field(default_factory=lambda: [7, 14, 28])
     
     # Model settings
-    models_to_evaluate: List[str] = field(default_factory=lambda: ['prophet','seasonal_naive'])
+    models_to_evaluate: List[str] = field(default_factory=lambda: ['lightgbm'])
     hyperparameter_tuning: bool = False
     
     # Evaluation settings
@@ -229,6 +229,124 @@ class BaseModel(ABC):
         """Get feature importance if available."""
         return self.feature_importance_
 
+
+
+class LightGBMModel(BaseModel):
+    """LightGBM model optimized for dataset."""
+
+    def __init__(self, name: str = "LightGBM", **lgb_params):
+        super().__init__(name)
+        self.lgb_params = {
+            'objective': 'poisson',  # Better for count data
+            'metric': 'rmse',
+            'boosting_type': 'gbdt',
+            'num_leaves': 127,
+            'learning_rate': 0.05,
+            'feature_fraction': 0.8,
+            'bagging_fraction': 0.8,
+            'bagging_freq': 5,
+            'verbose': -1,
+            'random_state': 42,
+            'num_threads': 4
+        }
+        self.lgb_params.update(lgb_params)
+        self.fitted = False
+        self.feature_importance_ = None
+        self.training_time = None
+        self.prediction_time = None
+
+    def fit(self, X: pd.DataFrame, y: pd.Series,  X_valid: pd.DataFrame = None, y_valid: pd.Series = None, **kwargs):
+        """Fit LightGBM model with early stopping."""
+        logger.info("🚀 Starting LightGBM training...")
+        start_time = time.time()
+
+        feature_cols = [col for col in X.columns if col not in ['date', 'store_id', 'item_id']]
+        X_train = X[feature_cols].copy()
+
+        # Identify categorical features
+        categorical_features = []
+        for col in X_train.columns:
+            if X_train[col].dtype.name == 'category':
+                categorical_features.append(col)
+                X_train[col] = X_train[col].astype('category')
+
+        train_data = lgb.Dataset(
+            X_train,
+            label=y,
+            categorical_feature=categorical_features,
+            free_raw_data=False
+        )
+
+        valid_sets = None
+        valid_names = None
+
+        if X_valid is not None and y_valid is not None:
+            X_val = X_valid[feature_cols].copy()
+            for col in X_val.columns:
+                if X_val[col].dtype.name == 'category':
+                    X_val[col] = X_val[col].astype('category')
+            
+            valid_data = lgb.Dataset(X_val, label=y_valid, categorical_feature=categorical_features, free_raw_data=False)
+            valid_sets = [train_data, valid_data]
+            valid_names = ['train', 'valid']
+        else:
+            valid_sets = [train_data]
+            valid_names = ['train']
+
+        num_boost_round = kwargs.get('num_boost_round', 1000)
+        early_stopping_rounds = kwargs.get('early_stopping_rounds', 100)
+
+         
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            self.model = lgb.train(
+                self.lgb_params,
+                train_data,
+                num_boost_round=num_boost_round,
+                valid_sets=valid_sets,
+                valid_names=valid_names,
+                callbacks=[
+                lgb.early_stopping(early_stopping_rounds),
+                lgb.log_evaluation(0)
+            ])
+        
+
+        if self.model:
+            self.feature_importance_ = pd.DataFrame({
+                'feature': X_train.columns,
+                'importance': self.model.feature_importance(importance_type='gain')
+            }).sort_values('importance', ascending=False)
+            logger.info(f"📊 Feature importance computed for {len(self.feature_importance_)} features")
+
+        self.fitted = True
+        self.training_time = time.time() - start_time
+        logger.info(f"✅ Training completed in {self.training_time:.2f} seconds")
+        return self
+
+    def predict(self, X: pd.DataFrame) -> np.ndarray:
+        """Make predictions with LightGBM."""
+        if not self.fitted:
+            logger.error("❌ Prediction attempted before model was fitted")
+            raise ValueError("Model must be fitted before predicting")
+
+        logger.info("⚡ Starting prediction...")
+        start_time = time.time()
+
+        feature_cols = [col for col in X.columns if col not in ['date', 'store_id', 'item_id']]
+        X_pred = X[feature_cols].copy()
+
+        for col in X_pred.columns:
+            if X_pred[col].dtype.name == 'category':
+                X_pred[col] = X_pred[col].astype('category')
+
+        predictions = self.model.predict(X_pred)
+        predictions = np.maximum(predictions, 0)  
+
+        self.prediction_time = time.time() - start_time
+        logger.info(f"✅ Prediction completed in {self.prediction_time:.2f} seconds")
+        return predictions
+    
+
 # -------------------------------
 # Backtesting Engine
 # -------------------------------
@@ -319,10 +437,6 @@ class BacktestEngine:
         """Create model instance."""
         if model_name == 'lightgbm':
             return LightGBMModel()
-        elif model_name == 'prophet':
-            return ProphetModel()
-        elif model_name == 'seasonal_naive':
-            return SeasonalNaiveModel()
         else:
             raise ValueError(f"Unknown model: {model_name}")
     

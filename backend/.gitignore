@@ -12,7 +12,7 @@ data/
 !backend/data/raw/*.dvc
 /logs
 tmp/
-
+/mlruns
 
 # Distribution / packaging
 .Python

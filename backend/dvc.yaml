@@ -17,3 +17,5 @@ stages:
       - configs/features.yaml
     outs:
       - data\features\m5\m5_features.parquet
+  Backtesting:
+    cmd: python -m src.run_features --input data/processed/m5/master.parquet --output data/features/m5/m5_features.parquet

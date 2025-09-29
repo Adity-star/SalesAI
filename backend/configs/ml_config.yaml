@@ -25,7 +25,7 @@ models:
 
   
   prophet:
-    enabled: false  
+    enabled: True  
     params:
       seasonality_mode: "multiplicative"
       changepoint_prior_scale: 0.05
