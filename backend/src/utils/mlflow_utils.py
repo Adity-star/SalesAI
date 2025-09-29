@@ -12,7 +12,7 @@ import logging
 import joblib
 from src.utils.service_discovery import get_mlflow_endpoint, get_minio_endpoint
 from src.logger import logger
-from src.utils.config_loader import load_config, get_config_path
+from src.utils.config_loader import ConfigLoader
 logger = logging.getLogger(__name__)
 
 
@@ -23,17 +23,15 @@ class MLflowManager:
         Initialize MLflowManager with config loaded from src/config or given filename.
         Sets up MLflow tracking URI, experiment, MinIO config, and MlflowClient.
         """
-        if config_path is None:
-            config_path = get_config_path()
-        
-        if not os.path.exists(config_path):
-            logger.error(f"Config file not found at {config_path}")
-            raise FileNotFoundError(f"Missing config: {config_path}")
+        self.config_loader = ConfigLoader()
+        self.config:Dict[str,Any] = self.config_loader.load_yaml(config_path or 'ml_config.yaml')
 
-        # Use load_config to load YAML config as dict
-        self.config = load_config(filename=config_path.name)
+        mlflow_config = self.config.get('mlflow',{})
 
-        mlflow_config = self.config['mlflow']
+
+        if not mlflow_config:
+                logger.error("Missing 'mlflow' section in config file.")
+                raise ValueError("Configuration must contain an 'mlflow' section.")
 
         # Use service discovery to get tracking URI
         self.tracking_uri = None

@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-M5 Dataset Processing Runner
+Dataset Processing Runner
 ===========================
 
 Memory-optimized runner for M5 Walmart dataset processing.
 Handles large-scale data processing with limited memory resources.
 
 Usage:
-    python run_m5_pipeline.py --memory-limit 4 --chunk-size 2000
-    python run_m5_pipeline.py --validate-only
-    python run_m5_pipeline.py --sample-only --sample-size 10000
+    python run_pipeline.py --memory-limit 4 --chunk-size 2000
+    python run_pipeline.py --validate-only
+    python run_pipeline.py --sample-only --sample-size 10000
 """
 
 import sys

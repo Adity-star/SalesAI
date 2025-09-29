@@ -1,8 +1,8 @@
 """
-M5 Walmart Backtesting Framework
+Backtesting Framework
 ==============================
 
-Production-grade backtesting framework specifically designed for M5 dataset:
+Backtesting framework  designed for M5 dataset:
 - Rolling-origin (walk-forward) validation 
 - Multiple forecast horizons (7, 14, 28, 90 days)
 - Retail-specific metrics (RMSE, MAE, MASE, sMAPE, PICP)
@@ -11,27 +11,25 @@ Production-grade backtesting framework specifically designed for M5 dataset:
 - Memory-efficient processing for large-scale evaluation
 """
 
+import json
+import gc
+import time
+import warnings
+
 import pandas as pd
 import numpy as np
 from pathlib import Path
 import logging
-from typing import Dict, List, Optional, Tuple, Any, Union
-from dataclasses import dataclass, field, asdict
+
+from prophet import Prophet 
+
+from typing import List, Optional, Tuple
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-import warnings
-import json
-import gc
-import time
 from abc import ABC, abstractmethod
 
-# ML libraries
 import lightgbm as lgb
-from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_squared_error, mean_absolute_error
-from sklearn.preprocessing import LabelEncoder
-
-# Configuration
-from backend.src.utils.config_loader import load_config
 
 logger = logging.getLogger(__name__)
 
@@ -57,13 +55,14 @@ class BacktestConfig:
     horizons: List[int] = field(default_factory=lambda: [7, 14, 28])
     
     # Model settings
-    models_to_evaluate: List[str] = field(default_factory=lambda: ['lightgbm', 'seasonal_naive'])
+    models_to_evaluate: List[str] = field(default_factory=lambda: ['prophet','seasonal_naive'])
     hyperparameter_tuning: bool = False
     
     # Evaluation settings
     stratify_by: List[str] = field(default_factory=lambda: ['cat_id', 'dept_id', 'store_id', 'state_id'])
     save_predictions: bool = True
     memory_efficient: bool = True
+
 
 @dataclass
 class EvaluationMetrics:
@@ -78,6 +77,7 @@ class EvaluationMetrics:
     samples: int = 0
     zero_predictions_pct: float = 0.0
 
+
 @dataclass
 class BacktestResults:
     """Container for backtest results."""
@@ -89,38 +89,63 @@ class BacktestResults:
     training_time: float = 0.0
     prediction_time: float = 0.0
 
+
+def convert_np_types(obj):
+    # Recursively convert numpy types to native Python types
+    if isinstance(obj, dict):
+        return {k: convert_np_types(v) for k, v in obj.items()}
+    elif isinstance(obj, (np.float32, np.float64)):
+        return float(obj)
+    elif isinstance(obj, (np.int32, np.int64)):
+        return int(obj)
+    elif isinstance(obj, list):
+        return [convert_np_types(i) for i in obj]
+    else:
+        return obj
+            
+
 # -------------------------------
 # Metrics Calculator
 # -------------------------------
 
-class M5MetricsCalculator:
+
+logger = logging.getLogger(__name__)
+
+class MetricsCalculator:
     """Calculate M5-specific forecasting metrics."""
-    
+
     @staticmethod
     def rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         """Root Mean Square Error."""
-        return np.sqrt(mean_squared_error(y_true, y_pred))
+        result = np.sqrt(mean_squared_error(y_true, y_pred))
+        logger.debug(f"🔢 RMSE calculated: {result:.4f}")
+        return result
     
     @staticmethod
     def mae(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         """Mean Absolute Error."""
-        return mean_absolute_error(y_true, y_pred)
+        result = mean_absolute_error(y_true, y_pred)
+        logger.debug(f"✂️ MAE calculated: {result:.4f}")
+        return result
     
     @staticmethod
     def mase(y_true: np.ndarray, y_pred: np.ndarray, y_train: np.ndarray, 
              seasonal_period: int = 7) -> float:
         """Mean Absolute Scaled Error - critical for M5 competition."""
         if len(y_train) < seasonal_period:
+            logger.warning("⚠️ MASE: y_train length less than seasonal_period, returning NaN")
             return np.nan
         
-        # Seasonal naive forecast errors
         naive_errors = np.abs(y_train[seasonal_period:] - y_train[:-seasonal_period])
         scale = np.mean(naive_errors)
         
         if scale == 0 or np.isnan(scale):
+            logger.warning("⚠️ MASE: scale is zero or NaN, returning 0.0")
             return 0.0
         
-        return np.mean(np.abs(y_true - y_pred)) / scale
+        result = np.mean(np.abs(y_true - y_pred)) / scale
+        logger.debug(f"📏 MASE calculated: {result:.4f}")
+        return result
     
     @staticmethod
     def smape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -128,31 +153,37 @@ class M5MetricsCalculator:
         numerator = np.abs(y_true - y_pred)
         denominator = (np.abs(y_true) + np.abs(y_pred)) / 2
         
-        # Handle division by zero
         mask = denominator != 0
         if not np.any(mask):
+            logger.warning("⚠️ SMAPE: denominator zero for all samples, returning 0.0")
             return 0.0
         
-        return np.mean(numerator[mask] / denominator[mask]) * 100
+        result = np.mean(numerator[mask] / denominator[mask]) * 100
+        logger.debug(f"📉 SMAPE calculated: {result:.4f}%")
+        return result
     
     @staticmethod
     def mape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         """Mean Absolute Percentage Error."""
         mask = y_true != 0
         if not np.any(mask):
+            logger.warning("⚠️ MAPE: y_true contains all zeros, returning infinity")
             return np.inf
-        return np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100
+        
+        result = np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100
+        logger.debug(f"📊 MAPE calculated: {result:.4f}%")
+        return result
     
     @staticmethod
     def calculate_all_metrics(y_true: np.ndarray, y_pred: np.ndarray, 
-                            y_train: np.ndarray) -> EvaluationMetrics:
+                              y_train: np.ndarray):
         """Calculate all metrics at once."""
-        calc = M5MetricsCalculator()
+        logger.info("🚀 Calculating all evaluation metrics...")
+        calc = MetricsCalculator()
         
-        # Ensure non-negative predictions for retail data
-        y_pred_clipped = np.maximum(y_pred, 0)
+        y_pred_clipped = np.maximum(y_pred, 0)  # Ensure no negative predictions
         
-        return EvaluationMetrics(
+        metrics = dict(
             rmse=calc.rmse(y_true, y_pred_clipped),
             mae=calc.mae(y_true, y_pred_clipped),
             mase=calc.mase(y_true, y_pred_clipped, y_train),
@@ -163,6 +194,11 @@ class M5MetricsCalculator:
             samples=len(y_true),
             zero_predictions_pct=np.mean(y_pred_clipped == 0) * 100
         )
+        
+        logger.info(f"✅ Metrics calculated: RMSE={metrics['rmse']:.4f}, MAE={metrics['mae']:.4f}, MASE={metrics['mase']:.4f}, SMAPE={metrics['smape']:.2f}%, MAPE={metrics['mape']:.2f}%")
+        logger.debug(f"Mean prediction: {metrics['mean_prediction']:.4f}, Mean actual: {metrics['mean_actual']:.4f}, Zero predictions: {metrics['zero_predictions_pct']:.2f}%")
+        
+        return metrics
 
 # -------------------------------
 # Model Wrappers
@@ -193,155 +229,10 @@ class BaseModel(ABC):
         """Get feature importance if available."""
         return self.feature_importance_
 
-class M5LightGBMModel(BaseModel):
-    """LightGBM model optimized for M5 dataset."""
-    
-    def __init__(self, name: str = "LightGBM", **lgb_params):
-        super().__init__(name)
-        self.lgb_params = {
-            'objective': 'poisson',  # Better for count data
-            'metric': 'rmse',
-            'boosting_type': 'gbdt',
-            'num_leaves': 127,
-            'learning_rate': 0.05,
-            'feature_fraction': 0.8,
-            'bagging_fraction': 0.8,
-            'bagging_freq': 5,
-            'verbose': -1,
-            'random_state': 42,
-            'num_threads': 4
-        }
-        self.lgb_params.update(lgb_params)
-    
-    def fit(self, X: pd.DataFrame, y: pd.Series, **kwargs):
-        """Fit LightGBM model with early stopping."""
-        start_time = time.time()
-        
-        # Prepare data
-        feature_cols = [col for col in X.columns if col not in ['date', 'store_id', 'item_id']]
-        X_train = X[feature_cols].copy()
-        
-        # Handle categorical features
-        categorical_features = []
-        for col in X_train.columns:
-            if X_train[col].dtype.name == 'category':
-                categorical_features.append(col)
-                X_train[col] = X_train[col].astype('category')
-        
-        # Create dataset
-        train_data = lgb.Dataset(
-            X_train, 
-            label=y,
-            categorical_feature=categorical_features,
-            free_raw_data=False
-        )
-        
-        # Training parameters
-        num_boost_round = kwargs.get('num_boost_round', 1000)
-        early_stopping_rounds = kwargs.get('early_stopping_rounds', 100)
-        
-        # Train model
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            self.model = lgb.train(
-                self.lgb_params,
-                train_data,
-                num_boost_round=num_boost_round,
-                callbacks=[
-                    lgb.early_stopping(early_stopping_rounds),
-                    lgb.log_evaluation(0)
-                ]
-            )
-        
-        # Store feature importance
-        if self.model:
-            self.feature_importance_ = pd.DataFrame({
-                'feature': X_train.columns,
-                'importance': self.model.feature_importance(importance_type='gain')
-            }).sort_values('importance', ascending=False)
-        
-        self.fitted = True
-        self.training_time = time.time() - start_time
-        return self
-    
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        """Make predictions with LightGBM."""
-        if not self.fitted:
-            raise ValueError("Model must be fitted before predicting")
-        
-        start_time = time.time()
-        
-        feature_cols = [col for col in X.columns if col not in ['date', 'store_id', 'item_id']]
-        X_pred = X[feature_cols].copy()
-        
-        # Handle categorical features
-        for col in X_pred.columns:
-            if X_pred[col].dtype.name == 'category':
-                X_pred[col] = X_pred[col].astype('category')
-        
-        predictions = self.model.predict(X_pred)
-        
-        # Ensure non-negative predictions
-        predictions = np.maximum(predictions, 0)
-        
-        self.prediction_time = time.time() - start_time
-        return predictions
-
-
-class M5SeasonalNaiveModel(BaseModel):
-    """Seasonal naive model - strong baseline for retail data."""
-    
-    def __init__(self, name: str = "SeasonalNaive", seasonal_period: int = 7):
-        super().__init__(name)
-        self.seasonal_period = seasonal_period
-        self.seasonal_values = {}
-    
-    def fit(self, X: pd.DataFrame, y: pd.Series, **kwargs):
-        """Store seasonal patterns for each time series."""
-        start_time = time.time()
-        
-        df = X.copy()
-        df['y'] = y
-        
-        # Store last seasonal_period values for each time series
-        for (store_id, item_id), group in df.groupby(['store_id', 'item_id']):
-            if len(group) >= self.seasonal_period:
-                recent_values = group.tail(self.seasonal_period)['y'].values
-                self.seasonal_values[(store_id, item_id)] = recent_values
-            else:
-                # Use mean if insufficient data
-                self.seasonal_values[(store_id, item_id)] = np.full(
-                    self.seasonal_period, group['y'].mean()
-                )
-        
-        self.fitted = True
-        self.training_time = time.time() - start_time
-        return self
-    
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        """Predict using seasonal naive approach."""
-        if not self.fitted:
-            raise ValueError("Model must be fitted before predicting")
-        
-        start_time = time.time()
-        predictions = np.zeros(len(X))
-        
-        for i, (store_id, item_id) in enumerate(zip(X['store_id'], X['item_id'])):
-            if (store_id, item_id) in self.seasonal_values:
-                seasonal_idx = i % self.seasonal_period
-                seasonal_values = self.seasonal_values[(store_id, item_id)]
-                predictions[i] = seasonal_values[seasonal_idx]
-            else:
-                predictions[i] = 0
-        
-        self.prediction_time = time.time() - start_time
-        return predictions
-
 # -------------------------------
 # Backtesting Engine
 # -------------------------------
-
-class M5BacktestEngine:
+class BacktestEngine:
     """M5-specific backtesting engine with rolling-origin validation."""
     
     def __init__(self, config: BacktestConfig, output_dir: str = "backtest_results"):
@@ -362,7 +253,15 @@ class M5BacktestEngine:
     
     def prepare_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """Prepare data for backtesting."""
-        logger.info("Preparing data for backtesting...")
+        logger.info("🛠️ Preparing data for backtesting...")
+
+        # Check for NaN values
+        nan_counts = df.isnull().sum()
+        nan_cols = nan_counts[nan_counts > 0]
+        if not nan_cols.empty:
+            logger.warning(f"⚠️ Found NaN values in the following columns:\n{nan_cols.to_string()}")
+        else:
+            logger.info("✅ No NaN values found in the input dataframe.")
         
         # Ensure required columns exist
         required_cols = ['date', 'store_id', 'item_id', 'sales']
@@ -381,15 +280,14 @@ class M5BacktestEngine:
         end_date = pd.to_datetime(self.config.test_end_date)
         df = df[(df['date'] >= start_date) & (df['date'] <= end_date)].copy()
         
-        logger.info(f"Prepared data: {df.shape[0]} rows")
-        logger.info(f"Date range: {df['date'].min()} to {df['date'].max()}")
-        logger.info(f"Unique series: {df.groupby(['store_id', 'item_id']).ngroups}")
-        
+        logger.info(f"✅ Prepared data: {df.shape[0]} rows")
+        logger.info(f"📅 Date range: {df['date'].min()} to {df['date'].max()}")
+        logger.info(f"🧩 Unique series count: {df.groupby(['store_id', 'item_id'],observed=False).ngroups}")
         return df
     
     def get_time_splits(self) -> List[Tuple[str, str, str]]:
         """Generate rolling-origin time splits."""
-        logger.info("Generating rolling-origin time splits...")
+        logger.info("🔄 Generating rolling-origin time splits...")
         
         validation_start = pd.to_datetime(self.config.validation_start_date)
         test_start = pd.to_datetime(self.config.test_start_date)
@@ -414,25 +312,26 @@ class M5BacktestEngine:
             # Move to next test period
             current_test_start += timedelta(days=self.config.step_size_days)
         
-        logger.info(f"Generated {len(splits)} time splits")
+        logger.info(f"📊 Generated {len(splits)} time splits")
         return splits
     
     def create_model(self, model_name: str) -> BaseModel:
         """Create model instance."""
         if model_name == 'lightgbm':
-            return M5LightGBMModel()
-
+            return LightGBMModel()
+        elif model_name == 'prophet':
+            return ProphetModel()
         elif model_name == 'seasonal_naive':
-            return M5SeasonalNaiveModel()
+            return SeasonalNaiveModel()
         else:
             raise ValueError(f"Unknown model: {model_name}")
     
-    def evaluate_split(self, df: pd.DataFrame, train_start: str, train_end: str, 
-                      test_start: str) -> List[BacktestResults]:
-        """Evaluate all models on a single time split."""
+    
+    def evaluate_split(self, df: pd.DataFrame, train_start: str, train_end: str, test_start: str) -> List[BacktestResults]:
+        from types import SimpleNamespace
+
         logger.info(f"Evaluating split: train {train_start} to {train_end}, test from {test_start}")
         
-        # Split data
         train_mask = (df['date'] >= train_start) & (df['date'] <= train_end)
         train_data = df[train_mask].copy()
         
@@ -442,25 +341,18 @@ class M5BacktestEngine:
         
         split_results = []
         
-        # Evaluate each model
         for model_name in self.config.models_to_evaluate:
             logger.info(f"Training {model_name}...")
             
             try:
-                # Create and train model
                 model = self.create_model(model_name)
                 
-                # Prepare features (exclude non-feature columns)
-                feature_cols = [col for col in train_data.columns 
-                              if col not in ['sales', 'd'] and not col.startswith('id')]
-                
+                feature_cols = [col for col in train_data.columns if col not in ['sales', 'd', 'date', 'store_id', 'item_id']]
                 X_train = train_data[['date', 'store_id', 'item_id'] + feature_cols]
                 y_train = train_data['sales']
                 
-                # Train model
                 model.fit(X_train, y_train)
                 
-                # Evaluate on each horizon
                 for horizon in self.config.horizons:
                     test_end_date = pd.to_datetime(test_start) + timedelta(days=horizon)
                     test_mask = (df['date'] >= test_start) & (df['date'] < test_end_date)
@@ -469,18 +361,15 @@ class M5BacktestEngine:
                     if len(test_data) == 0:
                         continue
                     
-                    # Make predictions
                     X_test = test_data[['date', 'store_id', 'item_id'] + feature_cols]
                     y_test = test_data['sales']
                     
                     predictions = model.predict(X_test)
                     
-                    # Calculate metrics
-                    metrics = M5MetricsCalculator.calculate_all_metrics(
-                        y_test.values, predictions, y_train.values
-                    )
+                    # Wrap the dict into an object with attribute access
+                    metrics_dict = MetricsCalculator.calculate_all_metrics(y_test.values, predictions, y_train.values)
+                    metrics = SimpleNamespace(**metrics_dict)
                     
-                    # Store results
                     result = BacktestResults(
                         model_name=model_name,
                         horizon=horizon,
@@ -502,21 +391,21 @@ class M5BacktestEngine:
                     split_results.append(result)
                     
                     logger.info(f"{model_name} H{horizon}: RMSE={metrics.rmse:.3f}, "
-                               f"MAE={metrics.mae:.3f}, MASE={metrics.mase:.3f}")
+                                f"MAE={metrics.mae:.3f}, MASE={metrics.mase:.3f}")
             
             except Exception as e:
                 logger.error(f"Failed to evaluate {model_name}: {e}")
                 continue
             
-            # Memory cleanup
             del model
             gc.collect()
         
         return split_results
-    
+
+      
     def run_backtest(self, df: pd.DataFrame) -> pd.DataFrame:
         """Run complete backtesting procedure."""
-        logger.info("Starting M5 backtesting procedure...")
+        logger.info("🚀 Starting backtesting procedure...")
         
         start_time = time.time()
         
@@ -545,13 +434,13 @@ class M5BacktestEngine:
         self._save_final_results(results_df, all_results)
         
         duration = time.time() - start_time
-        logger.info(f"Backtesting completed in {duration/60:.1f} minutes")
+        logger.info(f"✅ Backtesting completed in {duration / 60:.1f} minutes")
         
         return results_df
     
     def _aggregate_results(self, results: List[BacktestResults]) -> pd.DataFrame:
         """Aggregate results across splits."""
-        logger.info("Aggregating backtest results...")
+        logger.info("📊 Aggregating backtest results...")
         
         summary_data = []
         
@@ -587,6 +476,8 @@ class M5BacktestEngine:
     
     def _save_intermediate_results(self, results: List[BacktestResults]):
         """Save intermediate results to prevent data loss."""
+        logger.info("💾 Saving intermediate results to prevent data loss...")
+
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         temp_path = self.output_dir / f"temp_results_{timestamp}.json"
         
@@ -596,9 +487,9 @@ class M5BacktestEngine:
             result_dict = {
                 'model_name': result.model_name,
                 'horizon': result.horizon,
-                'metrics': asdict(result.metrics),
-                'training_time': result.training_time,
-                'prediction_time': result.prediction_time
+                'metrics': convert_np_types(vars(result.metrics)),
+                'training_time': float(result.training_time),
+                'prediction_time': float(result.prediction_time)
             }
             results_data.append(result_dict)
         
@@ -607,6 +498,9 @@ class M5BacktestEngine:
     
     def _save_final_results(self, summary_df: pd.DataFrame, all_results: List[BacktestResults]):
         """Save final backtest results."""
+
+        logger.info("💾 Saving final backtest results and generating report...")
+
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         
         # Save summary table
@@ -616,14 +510,15 @@ class M5BacktestEngine:
         # Save detailed results
         detailed_path = self.output_dir / f"backtest_detailed_{timestamp}.json"
         detailed_results = []
+
         
         for result in all_results:
             result_dict = {
                 'model_name': result.model_name,
                 'horizon': result.horizon,
-                'metrics': asdict(result.metrics),
-                'training_time': result.training_time,
-                'prediction_time': result.prediction_time
+                'metrics': convert_np_types(vars(result.metrics)),
+                'training_time': float(result.training_time),
+                'prediction_time': float(result.prediction_time)
             }
             detailed_results.append(result_dict)
         
@@ -639,6 +534,9 @@ class M5BacktestEngine:
     
     def _generate_report(self, summary_df: pd.DataFrame):
         """Generate human-readable backtest report."""
+
+        logger.info("📝 Generating human-readable backtest report...")
+
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         report_path = self.output_dir / f"backtest_report_{timestamp}.txt"
         
@@ -677,3 +575,4 @@ class M5BacktestEngine:
                            f"sMAPE={row['smape']:.2f}%\n")
         
         logger.info(f"Report saved: {report_path}")
+        logger.info("✅ Report generation completed.")
