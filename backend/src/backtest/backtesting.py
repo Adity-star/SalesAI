@@ -31,7 +31,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error
 from sklearn.preprocessing import LabelEncoder
 
 # Configuration
-from src.config.m5_config_loader import load_config
+from backend.src.utils.config_loader import load_config
 
 logger = logging.getLogger(__name__)
 

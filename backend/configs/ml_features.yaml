@@ -28,9 +28,9 @@ date_features:
     - "year"
     - "month" 
     - "day"
-    - "dayofweek"
+    - "weekday"
     - "quarter"
-    - "weekofyear"
+    - "week_of_year"
   
   derived_features:
     - "is_weekend"
@@ -232,10 +232,11 @@ dtype_optimization:
 # Missing value handling
 missing_values:
   strategy:
-    time_series_features: "forward_fill"  # lag, rolling, ewm features
-    price_features: "group_forward_fill"  # forward fill within item-store groups
-    flag_features: "zero_fill"            # binary flags
-    other_features: "mean_fill"           # other numeric features
+    time_series_features: forward_fill
+    price_features: group_forward_fill
+    flag_features: zero_fill
+    other_features: mean_fill
+  categorical_strategy: fill_no_event          # other numeric features
   
   validation:
     max_missing_pct: 50  # Warn if > 50% missing
@@ -246,3 +247,5 @@ output:
   compression: "snappy"
   row_group_size: 50000
   use_dictionary: true
+
+

@@ -10,20 +10,20 @@ from sklearn.preprocessing import LabelEncoder
 import logging
 
 from src.logger import logger
-from src.utils.config_loader import load_config
+from src.utils.config_loader import load_config, config_loader
 
 logger = logging.getLogger(__name__)
 
 
-# Load config using the centralized loader
 try:
-    config = load_config()
+    config = config_loader.load_yaml("ml_config.yaml")
     features_cfg = config.get("features", {})
     holiday_cfg = config.get("holiday", {})
     logger.info("✅ Config loaded successfully using config_loader")
 except Exception as e:
     logger.error(f"❌ Failed to load config: {e}")
     raise
+
 
 
 class FeaturePipeline:

@@ -262,3 +262,13 @@
 #         return False
 #     logger.info("Input data validation passed.")
 
+from src.features.feature_pipeline import FeaturePipeline
+import pandas as pd
+
+df = pd.read_parquet(r"C:\Users\Administrator\OneDrive\Desktop\SalesAI\backend\data\processed\m5\master.parquet")
+
+pipeline = FeaturePipeline(df, target_col="sales",group_cols=["store_id","item_id"])
+
+pipeline.run()
+
+
