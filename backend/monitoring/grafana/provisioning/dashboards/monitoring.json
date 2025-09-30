@@ -1,0 +1,56 @@
+{
+  "id": null,
+  "title": "M5 Monitoring",
+  "tags": ["m5", "forecasting"],
+  "timezone": "browser",
+  "schemaVersion": 36,
+  "version": 0,
+  "panels": [
+    {
+      "type": "graph",
+      "title": "Feature Drift Alerts",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "drift_alerts_total",
+          "legendFormat": "{{model}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "graph",
+      "title": "MLflow Model Count",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "mlflow_registered_models_total",
+          "legendFormat": "{{model}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "graph",
+      "title": "Redis Keys",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "redis_db_keys",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "type": "graph",
+      "title": "Node CPU Usage",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "100 - (avg by(instance) (irate(node_cpu_seconds_total{mode='idle'}[5m])) * 100)",
+          "refId": "D"
+        }
+      ]
+    }
+  ]
+}

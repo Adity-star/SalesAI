@@ -116,35 +116,52 @@ class MLflowManager:
     def log_model(self, model, model_name: str, input_example: Optional[pd.DataFrame] = None,
                   signature: Optional[Any] = None, registered_model_name: Optional[str] = None):
         """
-        Log model to MLflow with compatibility for different versions.
-        Falls back to saving models as artifacts if MLflow model logging fails.
+        Log model to MLflow using framework-specific methods, with a fallback to joblib.
         """
         try:
-            # Save model to a temporary file first
-            import tempfile
-            with tempfile.TemporaryDirectory() as tmpdir:
-                model_path = os.path.join(tmpdir, f"{model_name}_model.pkl")
-                joblib.dump(model, model_path)
-                
-                # Log as artifact
-                mlflow.log_artifact(model_path, artifact_path=f"models/{model_name}")
-                logger.info(f"Successfully saved {model_name} model as artifact")
-                
-                # Also save metadata
-                metadata = {
-                    "model_type": model_name,
-                    "framework": type(model).__module__,
-                    "class": type(model).__name__,
-                    "timestamp": datetime.now().isoformat()
-                }
-                metadata_path = os.path.join(tmpdir, f"{model_name}_metadata.yaml")
-                with open(metadata_path, 'w') as f:
-                    yaml.dump(metadata, f)
-                mlflow.log_artifact(metadata_path, artifact_path=f"models/{model_name}")
-                logger.info(f"Logged model metadata for {model_name}")
+            model_type = type(model).__name__.lower()
+            if 'lgbm' in model_type:
+                mlflow.lightgbm.log_model(
+                    lgb_model=model,
+                    artifact_path=f"models/{model_name}",
+                    registered_model_name=registered_model_name,
+                    input_example=input_example,
+                    signature=signature
+                )
+                logger.info(f"Successfully logged LightGBM model '{model_name}'")
+            elif 'xgb' in model_type:
+                mlflow.xgboost.log_model(
+                    xgb_model=model,
+                    artifact_path=f"models/{model_name}",
+                    registered_model_name=registered_model_name,
+                    input_example=input_example,
+                    signature=signature
+                )
+                logger.info(f"Successfully logged XGBoost model '{model_name}'")
+            else:
+                # Fallback for other model types
+                mlflow.pyfunc.log_model(
+                    artifact_path=f"models/{model_name}",
+                    python_model=model,
+                    registered_model_name=registered_model_name,
+                    input_example=input_example,
+                    signature=signature
+                )
+                logger.info(f"Successfully logged generic pyfunc model '{model_name}'")
 
         except Exception as e:
-            logger.error(f"Failed to log model {model_name}: {e}")
+            logger.error(f"Failed to log model {model_name} using MLflow's framework-specific methods: {e}")
+            logger.info(f"Falling back to joblib serialization for model {model_name}")
+            try:
+                import tempfile
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    model_path = os.path.join(tmpdir, f"{model_name}_model.pkl")
+                    joblib.dump(model, model_path)
+                    mlflow.log_artifact(model_path, artifact_path=f"models/{model_name}")
+                    logger.info(f"Successfully saved {model_name} model as a joblib artifact.")
+            except Exception as e2:
+                logger.error(f"Fallback joblib serialization for model {model_name} also failed: {e2}")
+
     
     def log_artifacts(self, artifact_path: str):
         artifact_subdir = "reports"

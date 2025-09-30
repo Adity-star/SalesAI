@@ -1,0 +1,15 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: "default"
+
+receivers:
+  - name: "default"
+    email_configs:
+      - to: "your-email@example.com"
+        from: "alert@example.com"
+        smarthost: "smtp.gmail.com:587"
+        auth_username: "your-gmail@example.com"
+        auth_identity: "your-gmail@example.com"
+        auth_password: "your-app-password"  # use an App Password if Gmail

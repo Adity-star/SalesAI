@@ -1,18 +1,11 @@
 import pytest
-import shutil
 import os
-import sys
-
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.data_pipelines.data_generator import SyntheticDataGenerator
 
 @pytest.fixture(scope="session")
-def output_dir():
-    path = "/tmp/sales_data"
-    if os.path.exists(path):
-        shutil.rmtree(path)
-    os.makedirs(path, exist_ok=True)
+def output_dir(tmp_path_factory):
+    path = tmp_path_factory.mktemp("sales_data")
     return path
 
 @pytest.fixture(scope="session")

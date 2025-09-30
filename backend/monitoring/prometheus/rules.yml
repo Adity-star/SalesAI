@@ -1,0 +1,29 @@
+groups:
+  - name: service_alerts
+    rules:
+      - alert: NodeExporterDown
+        expr: up{job="node-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Node Exporter is down"
+          description: "Check the host metrics exporter."
+
+      - alert: MLflowDown
+        expr: up{job="mlflow"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MLflow is down"
+          description: "MLflow server is not reachable."
+
+      - alert: MonitoringDBDown
+        expr: up{job="monitoring-db"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Monitoring DB service is down"
+          description: "MonitoringDatabase service is not reachable."

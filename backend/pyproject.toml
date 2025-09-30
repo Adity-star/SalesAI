@@ -1,3 +1,4 @@
+
 [build-system]
 requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
@@ -21,7 +22,6 @@ dependencies = [
   "fastparquet>=2024.2",
   "holidays",
   "mlflow",
-  "apache-airflow",
   "boto3",
   "sqlalchemy",
   "scikit-learn",
@@ -43,6 +43,9 @@ dev = [
   "ruff>=0.4",          
   "ipython",
   "jupyterlab"
+]
+airflow = [
+  "apache-airflow==2.5.3"
 ]
 
 [project.scripts]

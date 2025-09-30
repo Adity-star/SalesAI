@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 from dags.tasks.extract_data_task import extract_data_task, validate_data_task
 from dags.tasks.prepare_and_train_task import prepare_and_train_task, evaluate_models_task
-from tasks.model_deployement_tasks import (
+from dags.tasks.model_deployement_tasks import (
     register_best_models_task, 
     transition_to_production_task,
     generate_performance_report_task,
@@ -48,8 +48,8 @@ default_args = {
 }
 
 
-DATA_DIR = Variable.get("sales_data_dir", "/tmp/sales_data")
-ARTIFACT_DIR = Variable.get("artifacts_dir", "/tmp/artifacts")
+DATA_DIR = Variable.get("sales_data_dir")
+ARTIFACT_DIR = Variable.get("artifacts_dir")
 APPROVAL_VAR = Variable.get("approve_production_var", "approve_production")
 
 
@@ -122,12 +122,12 @@ with DAG(
     # -------------------------
     @task(task_id="register_best_models")
     def register_best_models_wrapper(evaluation_result: dict) -> dict:
-        from tasks.model_deployement_tasks import register_best_models
+        from dags.tasks.model_deployement_tasks import register_best_models
         return register_best_models(evaluation_result=evaluation_result)
 
     @task(task_id="transition_to_production")
     def transition_to_production_wrapper(registration_result: dict) -> str:
-        from tasks.model_deployement_tasks import transition_to_production
+        from dags.tasks.model_deployement_tasks import transition_to_production
         return transition_to_production(registration_result=registration_result)
 
     # -------------------------
@@ -135,7 +135,7 @@ with DAG(
     # -------------------------
     @task(task_id="generate_performance_report")
     def generate_report_wrapper(training_result: dict, validation_summary: dict) -> dict:
-        from tasks.model_deployement_tasks import generate_performance_report
+        from dags.tasks.model_deployement_tasks import generate_performance_report
         return generate_performance_report(training_result=training_result, validation_summary=validation_summary)
 
     # -------------------------
@@ -143,9 +143,8 @@ with DAG(
     # -------------------------
     @task(task_id="cleanup", trigger_rule=TriggerRule.ALL_DONE)
     def cleanup_wrapper(temp_dir: str = DATA_DIR, artifact_dir: str = ARTIFACT_DIR) -> str:
-        from tasks.model_deployement_tasks import cleanup
+        from dags.tasks.model_deployement_tasks import cleanup
         return cleanup(temp_dir=temp_dir, artifact_dir=artifact_dir)
-    
 
     # -------------------------
     # DAG wiring

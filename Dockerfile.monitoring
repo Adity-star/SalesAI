@@ -1,0 +1,39 @@
+# Use a slim Python image as a base
+FROM python:3.11-slim as base
+
+# Set the working directory
+WORKDIR /app
+
+# Install system dependencies required for building Python packages
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential && \
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get clean
+
+
+# Create a virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Copy and install requirements
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+
+# --- Final Stage ---
+FROM python:3.11-slim as final
+
+# Set the working directory
+WORKDIR /app
+
+# Copy the virtual environment from the base stage
+COPY --from=base /opt/venv /opt/venv
+
+# Activate the virtual environment
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Copy the application code
+COPY backend/ /app
+
+# Command to run the monitoring service (assuming a main.py entrypoint)
+CMD ["python", "main.py"]

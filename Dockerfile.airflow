@@ -1,0 +1,15 @@
+# Starting from the official Airflow image that matches your project's version
+FROM apache/airflow:2.5.3
+
+# Set the user to root to install dependencies
+USER root
+
+# Copy your backend code into the image
+COPY ./backend /opt/airflow/backend
+
+# Install your project and its dependencies
+# This will use the pyproject.toml inside the backend directory
+RUN pip install --no-cache-dir -e /opt/airflow/backend
+
+# Switch back to the default airflow user
+USER airflow
