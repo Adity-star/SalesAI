@@ -1,5 +1,4 @@
 import numpy as np
-import pandas as np
 from scipy.optimize import minimize
 from typing import Dict, List, Tuple, Any
 from sklearn.linear_model import Ridge, Lasso, ElasticNet

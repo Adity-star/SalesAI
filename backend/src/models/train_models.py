@@ -23,6 +23,7 @@ from src.models.advanced_ensemble import AdvancedEnsemble
 from src.models.digonistics import diagnose_model_performance
 from src.models.ensemble_model import EnsembleModel
 from src.utils.config_loader import ConfigLoader
+from src.visualizations.shap_visualizer import ShapExplainer 
 
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import mean_absolute_error, r2_score, mean_squared_error
@@ -312,6 +313,18 @@ class ModelTrainer:
             )
 
             self.models["xgboost"] = model
+            try:
+                logger.info("Generating SHAP explanations for XGBoost...")
+                shap_explainer = ShapExplainer(model, "lightgbm")
+                background_sample = X_train.sample(n=min(100, len(X_train)), random_state=42)
+                shap_explainer.fit_explainer(background_sample)
+                
+                if not hasattr(self, 'shap_explainers'):
+                    self.shap_explainers = {}
+                self.shap_explainers['xgboost'] = shap_explainer
+                logger.info("SHAP explainer fitted for XGBoost")
+            except Exception as e:
+                logger.warning(f"SHAP generation failed for XGBoost: {e}")
             logger.info(f"✅ Model trained successfully. Best iteration: {model.best_iteration}")
             return model
 
@@ -414,6 +427,20 @@ class ModelTrainer:
             )
 
             self.models["lightgbm"] = model
+            try:
+                logger.info("Generating SHAP explanations for LightGBM...")
+                shap_explainer = ShapExplainer(model, "lightgbm")
+                background_sample = X_train.sample(n=min(100, len(X_train)), random_state=42)
+                shap_explainer.fit_explainer(background_sample)
+                
+                if not hasattr(self, 'shap_explainers'):
+                    self.shap_explainers = {}
+                self.shap_explainers['lightgbm'] = shap_explainer
+                logger.info("✅ SHAP explainer fitted for LightGBM")
+            except Exception as e:
+                logger.warning(f"⚠️ SHAP generation failed for LightGBM: {e}")
+
+
             logger.info("✅ LightGBM model trained and stored.")
             return model
 
@@ -672,6 +699,7 @@ class ModelTrainer:
             else:
                 logger.info("ℹ️ Prophet training skipped by config.")
                 prophet_enabled = False
+            
 
             # ------------------------
             # Build Stacking Ensemble (Meta-Model)
@@ -718,8 +746,13 @@ class ModelTrainer:
                     'lightgbm': 1 / 3,
                     'prophet': 1 / 3
                 }
+            
+            advanced_ensemble = AdvancedEnsemble()
+            _, optimal_weights = advanced_ensemble.create_blended_ensemble(
+                test_predictions, y_test, optimization_metric='rmse'
+            )
 
-            ensemble_model = EnsembleModel(ensemble_models, ensemble_weights)
+            ensemble_model = EnsembleModel(ensemble_models, optimal_weights)
 
             self.models['ensemble'] = ensemble_model
 
@@ -737,6 +770,23 @@ class ModelTrainer:
             logger.info("🏆 Ensemble training complete!")
 
             logger.info(f"🎉 Successfully logged models and metrics: {list(results.keys())}")
+
+            # Generate SHAP visualizations
+            logger.info("📊 Generating SHAP visualizations and explanations...")
+            try:
+                shap_artifacts = self._generate_shap_artifacts(X_test, y_test, test_df)
+                
+                # Log to MLflow
+                self.mlflow_manager.log_metrics(shap_artifacts['metrics'])
+                self.mlflow_manager.log_params(shap_artifacts['params'])
+                
+                # Log artifact files
+                for file_path in shap_artifacts['files']:
+                    self.mlflow_manager.log_artifact(file_path, "shap_explanations")
+                
+                logger.info("✅ SHAP artifacts logged to MLflow")
+            except Exception as e:
+                logger.warning(f"⚠️ SHAP visualization generation failed: {e}")
 
             logger.info("🔍 Running diagnostics & visualizations...")
 
@@ -995,6 +1045,77 @@ class ModelTrainer:
 
         except Exception as e:
             logger.error(f"💥 Failed to create combined HTML report: {e}", exc_info=True)
+
+
+    def _generate_shap_artifacts(self, X_test: pd.DataFrame, y_test: np.ndarray, 
+                            test_df: pd.DataFrame) -> Dict[str, Any]:
+        """Generate SHAP explanations and visualizations."""
+        import tempfile
+        import os
+        from src.visualizations.shap_visualizer import ShapVisualizer
+        
+        artifacts = {'metrics': {}, 'params': {}, 'files': []}
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for model_name in ['xgboost', 'lightgbm']:
+                if not hasattr(self, 'shap_explainers') or model_name not in self.shap_explainers:
+                    logger.warning(f"⚠️ No SHAP explainer found for {model_name}")
+                    continue
+                
+                try:
+                    explainer = self.shap_explainers[model_name]
+                    visualizer = ShapVisualizer(explainer)
+                    
+                    # Generate explanations
+                    test_sample = X_test.sample(n=min(100, len(X_test)), random_state=42)
+                    explanation = explainer.explain_prediction(test_sample)
+                    
+                    # Global importance
+                    importance_df = explainer.get_global_importance(explanation, top_k=15)
+                    csv_path = os.path.join(temp_dir, f"{model_name}_feature_importance.csv")
+                    importance_df.to_csv(csv_path, index=False)
+                    artifacts['files'].append(csv_path)
+                    
+                    # Global importance visualization
+                    html_path = os.path.join(temp_dir, f"{model_name}_global_importance.html")
+                    visualizer.plot_global_importance(explanation, save_path=html_path)
+                    artifacts['files'].append(html_path)
+                    
+                    # Summary plot
+                    summary_path = os.path.join(temp_dir, f"{model_name}_summary.html")
+                    visualizer.plot_summary_plot(explanation, save_path=summary_path)
+                    artifacts['files'].append(summary_path)
+                    
+                    # Individual waterfall plots (first 3 samples)
+                    for i in range(min(3, len(test_sample))):
+                        waterfall_path = os.path.join(temp_dir, f"{model_name}_waterfall_{i}.html")
+                        visualizer.plot_waterfall_explanation(explanation, sample_idx=i, save_path=waterfall_path)
+                        artifacts['files'].append(waterfall_path)
+                    
+                    # Business explanations
+                    business_exp = visualizer.create_business_explanation(
+                        explanation, 
+                        sample_idx=0,
+                        store_id=str(test_sample.iloc[0].get('store_id', 'Unknown')),
+                        item_id=str(test_sample.iloc[0].get('item_id', 'Unknown')),
+                        pred_date=str(test_sample.iloc[0].get('date', 'Unknown'))
+                    )
+                    
+                    # Log metrics
+                    artifacts['metrics'][f'{model_name}_shap_top_feature'] = importance_df.iloc[0]['feature']
+                    artifacts['metrics'][f'{model_name}_shap_top_importance'] = float(importance_df.iloc[0]['importance'])
+                    
+                    # Log params (top 5 features)
+                    for i, row in importance_df.head(5).iterrows():
+                        artifacts['params'][f'{model_name}_feature_{i+1}'] = f"{row['feature']} ({row['importance']:.4f})"
+                    
+                    logger.info(f"✅ Generated SHAP artifacts for {model_name}")
+                    
+                except Exception as e:
+                    logger.error(f"❌ Failed to generate SHAP artifacts for {model_name}: {e}")
+                    continue
+        
+        return artifacts
 
 
     def save_artifacts(self, version: str = None):
