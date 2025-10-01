@@ -35,11 +35,10 @@ from sklearn.ensemble import IsolationForest
 from sklearn.decomposition import PCA
 
 # Monitoring and alerting
-import smtplib
-from email.mime.text import MimeText
-from email.mime.multipart import MimeMultipart
 import requests
 import schedule
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 # Visualization
 import matplotlib.pyplot as plt
@@ -657,11 +656,11 @@ class AlertManager:
             Please investigate and take appropriate action.
             """
             
-            msg = MimeMultipart()
+            msg = MIMEMultipart()
             msg['From'] = "ml-monitoring@company.com"
             msg['To'] = ", ".join(recipients)
             msg['Subject'] = subject
-            msg.attach(MimeText(body, 'plain'))
+            msg.attach(MIMEText(body, 'plain'))
             
             # Note: Configure SMTP server settings
             # server = smtplib.SMTP('smtp.gmail.com', 587)

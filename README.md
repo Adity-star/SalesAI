@@ -83,3 +83,8 @@ sales-forecasting/
 ├── Makefile                   # Common commands (train, test, deploy)
 
 ```
+
+### Set up services
+```python
+docker-compose -f docker-compose.override.yml up -d
+```

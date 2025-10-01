@@ -1,6 +1,6 @@
 # 📊 Model Diagnostic Report
 
-## Data Quality
+## 📦 Data Quality
 {
     "train_outliers": {
         "count": 20358,
@@ -29,7 +29,7 @@
     "n_features": 109
 }
 
-## Distribution Shift
+## 🔁 Distribution Shift
 {
     "train": {
         "mean": 0.8515775203704834,
@@ -45,7 +45,7 @@
     }
 }
 
-## Prediction Analysis
+## 📉 Prediction Analysis
 {
     "xgboost": {
         "pred_mean": 1.1458598375320435,
@@ -66,17 +66,17 @@
         "extreme_high_count": 0
     },
     "ensemble": {
-        "pred_mean": 1.1056488634678745,
-        "pred_std": 1.9186202028789396,
-        "residual_mean": 0.04070929644450217,
-        "residual_std": 0.9667174136694515,
-        "mape": 12.911033267846156,
-        "extreme_low_count": 0,
+        "pred_mean": 1.1463913867890854,
+        "pred_std": 2.8717699223224558,
+        "residual_mean": -3.322687670879836e-05,
+        "residual_std": 0.1044292109554549,
+        "mape": 1.9469210989147132,
+        "extreme_low_count": 1075,
         "extreme_high_count": 0
     }
 }
 
-## Recommendations
-- Test set shows distribution shift (mean shift: 34.6%)
-- High feature count (109). Consider feature selection.
-- Many zero sales (160711 in training). Consider log transform or zero-inflated models.
+## 💡 Recommendations
+- ⚠️ Test set shows distribution shift (mean shift: 34.6%)
+- ⚠️ High number of features (109). Consider feature selection.
+- 💡 Many zero sales (160711 in training). Consider log-transform or zero-inflated models.

@@ -3,7 +3,7 @@ import numpy as np
 from pathlib import Path
 import logging
 from typing import Dict, List, Optional, Any, Union
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date as Date
 import json
 import pickle
 import asyncio
@@ -12,30 +12,27 @@ import hashlib
 import time
 from datetime import datetime, timedelta, date
 
+from pydantic import ConfigDict, BaseModel, Field, validator
+
 from src.logger import logger
-from pydantic import BaseModel, Field, validator
-
-
-
-
 
 
 class PredictionRequest(BaseModel):
     """Single prediction request model."""
     store_id: str = Field(..., description="Store identifier")
-    item_id: str = Field(..., description="Item/product identifier") 
-    date = Field(..., description="Prediction date")
+    item_id: str = Field(..., description="Item/product identifier")
+    date: Date = Field(..., description="Prediction date")
     horizon: int = Field(7, ge=1, le=90, description="Forecast horizon in days")
     model_name: Optional[str] = Field("lightgbm", description="Model to use for prediction")
-    
+
     @validator('date')
-    def validate_date(cls, v):
+    def validate_date(cls, v: Date) -> Date:
         if v > date.today() + timedelta(days=365):
             raise ValueError('Date cannot be more than 1 year in the future')
         return v
-    
-    class Config:
-        schema_extra = {
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "store_id": "CA_1",
                 "item_id": "HOBBIES_1_001",
@@ -44,6 +41,7 @@ class PredictionRequest(BaseModel):
                 "model_name": "lightgbm"
             }
         }
+    )
 
 
 class BatchPredictionRequest(BaseModel):
@@ -51,16 +49,16 @@ class BatchPredictionRequest(BaseModel):
     items: List[Dict[str, Any]] = Field(..., description="List of items to predict")
     horizon: int = Field(7, ge=1, le=90, description="Forecast horizon in days")
     model_name: Optional[str] = Field("lightgbm", description="Model to use")
-    output_format: str = Field("json", regex="^(json|csv|parquet)$")
-    
+    output_format: str = Field("json", pattern="^(json|csv|parquet)$")
+
     @validator('items')
-    def validate_items(cls, v):
+    def validate_items(cls, v: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if len(v) > 10000:
             raise ValueError('Maximum 10,000 items per batch request')
         return v
-    
-    class Config:
-        schema_extra = {
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "items": [
                     {"store_id": "CA_1", "item_id": "HOBBIES_1_001", "date": "2024-01-15"},
@@ -71,17 +69,19 @@ class BatchPredictionRequest(BaseModel):
                 "output_format": "json"
             }
         }
+    )
+
 
 class HierarchicalPredictionRequest(BaseModel):
     """Hierarchical aggregation prediction request."""
-    aggregation_level: str = Field(..., regex="^(item|category|department|store|state|total)$")
+    aggregation_level: str = Field(..., pattern="^(item|category|department|store|state|total)$")
     filters: Optional[Dict[str, List[str]]] = Field(None, description="Filters for aggregation")
     start_date: date = Field(..., description="Start date for predictions")
     end_date: date = Field(..., description="End date for predictions")
     model_name: Optional[str] = Field("lightgbm", description="Model to use")
-    
-    class Config:
-        schema_extra = {
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "aggregation_level": "category",
                 "filters": {"cat_id": ["HOBBIES_1"], "state_id": ["CA"]},
@@ -90,6 +90,7 @@ class HierarchicalPredictionRequest(BaseModel):
                 "model_name": "lightgbm"
             }
         }
+    )
 
 
 class PredictionResponse(BaseModel):
@@ -104,6 +105,7 @@ class PredictionResponse(BaseModel):
     prediction_timestamp: datetime
     features_used: Optional[List[str]] = None
     features: Optional[Dict[str, Any]] = None
+
 
 class BatchPredictionResponse(BaseModel):
     """Batch prediction response model."""

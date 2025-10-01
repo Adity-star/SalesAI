@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
 import os
 import logging
+from scipy import stats
 from src.logger import logger
 
 logger = logging.getLogger(__name__)
@@ -136,35 +137,51 @@ class ModelVisualizer:
             logger.error("❌ Error in create_predictions_comparison_chart: %s", e, exc_info=True)
             raise
 
-    def create_residuals_analysis(self, predictions_dict: Dict[str, pd.DataFrame],
-                                  actual_data: pd.DataFrame,
-                                  target_col: str = 'sales',
-                                  save_path: Optional[str] = None) -> plt.Figure:
-        """Create residuals analysis plots"""
+    def create_residuals_analysis(
+        self,
+        predictions_dict: Dict[str, pd.DataFrame],
+        actual_data: pd.DataFrame,
+        target_col: str = 'sales',
+        save_path: Optional[str] = None
+    ) -> plt.Figure:
+        """Create residuals analysis plots."""
         try:
             logger.info("🔍 Creating residuals analysis plots...")
-            residuals_data = {}
-            merged_data = {}
+            residuals_data: Dict[str, pd.Series] = {}
+            merged_data: Dict[str, pd.DataFrame] = {}
 
+            # Compute residuals for each model
             for model_name, pred_df in predictions_dict.items():
+                # Merge on date
                 merged = pd.merge(
                     actual_data[['date', target_col]],
                     pred_df[['date', 'prediction']],
                     on='date',
                     how='inner'
                 )
-                residuals_data[model_name] = merged[target_col] - merged['prediction']
+                residuals = merged[target_col] - merged['prediction']
+                residuals_data[model_name] = residuals
                 merged_data[model_name] = merged
 
+            # Prepare subplots
             fig, axes = plt.subplots(2, 2, figsize=(14, 10))
             fig.suptitle('Residuals Analysis', fontsize=16)
 
-            # 1. Box plot
+            # --- 1. Box plot of residuals ---
             ax1 = axes[0, 0]
-            box_data = [residuals for residuals in residuals_data.values()]
-            box_colors = [self.colors.get(model.lower(), '#95A5A6') for model in residuals_data.keys()]
+            box_data = [residuals_data[m] for m in residuals_data.keys()]
+            box_colors = [self.colors.get(m.lower(), '#95A5A6') for m in residuals_data.keys()]
 
-            bp = ax1.boxplot(box_data, labels=list(residuals_data.keys()), patch_artist=True)
+            # Convert to list of numeric arrays
+            box_arrays = []
+            for arr in box_data:
+                try:
+                    arr_num = np.asarray(arr, dtype=float)
+                except Exception:
+                    arr_num = pd.to_numeric(arr, errors='coerce').dropna().values
+                box_arrays.append(arr_num)
+
+            bp = ax1.boxplot(box_arrays, labels=list(residuals_data.keys()), patch_artist=True)
             for patch, color in zip(bp['boxes'], box_colors):
                 patch.set_facecolor(color)
                 patch.set_alpha(0.7)
@@ -174,43 +191,63 @@ class ModelVisualizer:
             ax1.grid(True, alpha=0.3)
             ax1.axhline(y=0, color='red', linestyle='--', alpha=0.5)
 
-            # 2. Residuals vs Predicted (first model)
+            # --- 2. Residuals vs Predicted for first model ---
             ax2 = axes[0, 1]
             first_model = list(predictions_dict.keys())[0]
             first_pred = predictions_dict[first_model]
-            first_residuals = residuals_data[first_model]
+            first_resid = residuals_data[first_model]
 
-            min_len = min(len(first_pred), len(first_residuals))
-            pred_values = first_pred['prediction'].values[:min_len]
-            resid_values = first_residuals.values[:min_len]
+            # Align lengths
+            min_len = min(len(first_pred), len(first_resid))
+            pred_vals = first_pred['prediction'].values[:min_len]
+            resid_vals = first_resid.values[:min_len]
 
-            ax2.scatter(pred_values, resid_values,
-                        color=self.colors.get(first_model.lower(), '#95A5A6'),
-                        alpha=0.6, s=30)
+            # Convert to numeric arrays
+            try:
+                pred_vals = np.asarray(pred_vals, dtype=float)
+                resid_vals = np.asarray(resid_vals, dtype=float)
+            except Exception:
+                pred_vals = pd.to_numeric(pred_vals, errors='coerce').dropna().values
+                resid_vals = pd.to_numeric(resid_vals, errors='coerce').dropna().values
+
+            # Filter finite
+            mask = np.isfinite(pred_vals) & np.isfinite(resid_vals)
+            pred_vals = pred_vals[mask]
+            resid_vals = resid_vals[mask]
+
+            if len(pred_vals) > 0 and len(resid_vals) > 0:
+                ax2.scatter(pred_vals, resid_vals,
+                            color=self.colors.get(first_model.lower(), '#95A5A6'),
+                            alpha=0.6, s=30)
             ax2.axhline(y=0, color='red', linestyle='--')
             ax2.set_title(f'Residuals vs Predicted ({first_model})')
             ax2.set_xlabel('Predicted Values')
             ax2.set_ylabel('Residuals')
             ax2.grid(True, alpha=0.3)
 
-            # 3. Residuals over time
+            # --- 3. Residuals over time ---
             ax3 = axes[1, 0]
             for model_name in residuals_data.keys():
-                if model_name in merged_data:
-                    dates = merged_data[model_name]['date']
-                    residuals = residuals_data[model_name]
-                    ax3.plot(dates, residuals,
-                             color=self.colors.get(model_name.lower(), '#95A5A6'),
-                             label=model_name, alpha=0.7)
+                merged = merged_data.get(model_name)
+                if merged is not None:
+                    dates = merged['date']
+                    resid = residuals_data[model_name]
                 else:
-                    residuals = residuals_data[model_name]
+                    # fallback: use prediction date indices
                     pred_df = predictions_dict[model_name]
-                    min_len = min(len(pred_df), len(residuals))
-                    dates = pred_df['date'].iloc[:min_len]
-                    resid_values = residuals.iloc[:min_len] if hasattr(residuals, 'iloc') else residuals[:min_len]
-                    ax3.plot(dates, resid_values,
-                             color=self.colors.get(model_name.lower(), '#95A5A6'),
-                             label=model_name, alpha=0.7)
+                    min_l = min(len(pred_df), len(residuals_data[model_name]))
+                    dates = pred_df['date'].iloc[:min_l]
+                    resid = residuals_data[model_name].iloc[:min_l]
+
+                # Try converting residuals to numeric
+                try:
+                    resid_num = np.asarray(resid, dtype=float)
+                except Exception:
+                    resid_num = pd.to_numeric(resid, errors='coerce').fillna(0).values
+
+                ax3.plot(dates, resid_num,
+                         color=self.colors.get(model_name.lower(), '#95A5A6'),
+                         label=model_name, alpha=0.7)
 
             ax3.axhline(y=0, color='red', linestyle='--', alpha=0.5)
             ax3.set_title('Residuals Over Time')
@@ -220,30 +257,47 @@ class ModelVisualizer:
             ax3.grid(True, alpha=0.3)
             fig.autofmt_xdate()
 
-            # 4. Q-Q plot (first model)
+            # --- 4. Q-Q Plot (first model) ---
             ax4 = axes[1, 1]
-            from scipy import stats
-            resid_array = first_residuals.values if hasattr(first_residuals, 'values') else first_residuals
-            theoretical_quantiles = stats.probplot(resid_array, dist="norm", fit=False)[0]
+            # Convert residuals to numeric numpy array
+            try:
+                resid_arr = np.asarray(first_resid, dtype=float)
+            except Exception:
+                resid_arr = pd.to_numeric(first_resid, errors='coerce').dropna().values
 
-            ax4.scatter(theoretical_quantiles, sorted(resid_array),
-                        color=self.colors.get(first_model.lower(), '#95A5A6'),
-                        alpha=0.6)
+            # Filter finite values
+            resid_arr = resid_arr[np.isfinite(resid_arr)]
 
-            min_val = min(theoretical_quantiles.min(), resid_array.min())
-            max_val = max(theoretical_quantiles.max(), resid_array.max())
-            ax4.plot([min_val, max_val], [min_val, max_val], 'r--')
+            if resid_arr.size < 2:
+                logger.warning(f"Too few residuals for Q‑Q plot for model {first_model}, skipping.")
+            else:
+                theoretical = stats.probplot(resid_arr, dist="norm", fit=False)[0]
+                resid_sorted = np.sort(resid_arr)
 
-            ax4.set_title(f'Q-Q Plot ({first_model})')
-            ax4.set_xlabel('Theoretical Quantiles')
-            ax4.set_ylabel('Sample Quantiles')
-            ax4.grid(True, alpha=0.3)
+                # Make sure arrays match length
+                min_len2 = min(len(theoretical), len(resid_sorted))
+                x = theoretical[:min_len2].astype(float)
+                y = resid_sorted[:min_len2].astype(float)
+
+                ax4.scatter(x, y,
+                            color=self.colors.get(first_model.lower(), '#95A5A6'),
+                            alpha=0.6)
+                # Plot reference line
+                min_v = min(x.min(), y.min())
+                max_v = max(x.max(), y.max())
+                ax4.plot([min_v, max_v], [min_v, max_v], 'r--')
+
+                ax4.set_title(f'Q-Q Plot ({first_model})')
+                ax4.set_xlabel('Theoretical Quantiles')
+                ax4.set_ylabel('Sample Quantiles')
+                ax4.grid(True, alpha=0.3)
 
             plt.tight_layout()
 
             if save_path:
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
                 plt.savefig(save_path, dpi=300, bbox_inches='tight')
-                plt.close()
+                plt.close(fig)
                 logger.info(f"✅ Saved residuals analysis chart to {save_path}")
 
             return fig

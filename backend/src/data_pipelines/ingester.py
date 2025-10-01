@@ -3,7 +3,7 @@ Sales Forecasting Pipeline for Single Dataset
 ============================================================
 
 
-Dataset: M5 Forecasting Competition (Walmart)
+Dataset: M5 Forecasting (Walmart)
 - 42,840 time series
 - 5 years of data (2011-2016)  
 - Hierarchical structure: item -> dept -> category -> store -> state
@@ -206,11 +206,9 @@ class M5DatasetProcessor:
     def setup_directories(self):
         """Create required directory structure."""
         dirs = [
-            "data/interim/m5",
             "data/processed/m5", 
             "data/features/m5",
             "data/quality/m5",
-            "data/monitoring/m5"
         ]
         
         for dir_path in dirs:

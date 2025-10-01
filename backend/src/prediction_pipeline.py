@@ -19,7 +19,7 @@ from datetime import datetime
 
 from src.logger import logger
 from src.exception import CustomException
-from src.pipelines.prediction_pipeline import PredictionPipeline
+from src.prediction_pipeline import PredictionPipeline
 
 logger = logging.getLogger(__name__)
 

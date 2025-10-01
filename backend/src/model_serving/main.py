@@ -5,6 +5,7 @@ from datetime import datetime
 from functools import lru_cache
 import os
 from dotenv import load_dotenv
+import sys
 
 # FastAPI and dependencies
 from fastapi import FastAPI, HTTPException, Depends, status, Query
@@ -17,11 +18,13 @@ import uvicorn
 from src.logger import logger
 
 # Configuration
-from api.prediction import ModelInfo, PredictionRequest,PredictionResponse,BatchPredictionRequest,BatchPredictionResponse
+from src.model_serving.prediction import ModelInfo, PredictionRequest,PredictionResponse,BatchPredictionRequest,BatchPredictionResponse
 from src.monitoring.drift import M5MonitoringSystem, MonitoringConfig
-from api.model_manager import PredictionFeatureEngineer,ModelManager,PredictionService
+from src.model_serving.model_manager import ModelManager,PredictionService
 
 load_dotenv()
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
+
 
 # -------------------------------
 # Dependency Injection Providers
@@ -41,10 +44,7 @@ def get_model_manager() -> ModelManager:
         logger.warning("Failed to preload model during startup", error=str(e))
     return model_manager
 
-@lru_cache(maxsize=1)
-def get_feature_engineer() -> PredictionFeatureEngineer:
-    """Get a singleton PredictionFeatureEngineer instance."""
-    return PredictionFeatureEngineer()
+
 
 @lru_cache(maxsize=1)
 def get_monitoring_system() -> M5MonitoringSystem:
@@ -58,10 +58,9 @@ def get_monitoring_system() -> M5MonitoringSystem:
 
 def get_prediction_service(
     model_manager: ModelManager = Depends(get_model_manager),
-    feature_engineer: PredictionFeatureEngineer = Depends(get_feature_engineer)
 ) -> PredictionService:
     """Get a PredictionService instance."""
-    return PredictionService(model_manager, feature_engineer)
+    return PredictionService(model_manager)
 
 
 # -------------------------------
@@ -69,7 +68,7 @@ def get_prediction_service(
 # -------------------------------
 
 app = FastAPI(
-    title="M5 Walmart Forecasting API",
+    title="Forecasting API",
     description="Production API for M5 Walmart sales forecasting",
     version="1.0.0",
     docs_url="/docs",
@@ -239,7 +238,7 @@ async def monitoring_dashboard(
 if __name__ == "__main__":
     import argparse
     
-    parser = argparse.ArgumentParser(description="M5 Forecasting API Server")
+    parser = argparse.ArgumentParser(description="Forecasting API Server")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
     parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
     parser.add_argument("--workers", type=int, default=1, help="Number of worker processes")
