@@ -17,7 +17,6 @@ import os
 import argparse
 import logging
 from pathlib import Path
-from datetime import datetime
 import psutil
 import gc
 from src.logger import logger
@@ -30,7 +29,8 @@ logger = logging.getLogger(__name__)
 sys.path.append(str(Path(__file__).parent))
 
 # Import your M5 processor
-from src.data_pipelines.ingester import M5DatasetProcessor, M5DatasetConfig
+from src.data_pipelines.ingester import DatasetProcessor
+from src.entity.ingest_entity import DatasetConfig
 
 
 def check_system_resources():
@@ -52,7 +52,7 @@ def check_system_resources():
     
     return memory.available / 1024**3
 
-def validate_data_files(config: M5DatasetConfig) -> bool:
+def validate_data_files(config: DatasetConfig) -> bool:
     """Validate that required M5 data files exist."""
     logger.info("🔍 Validating M5 data files...")
     
@@ -81,7 +81,7 @@ def validate_data_files(config: M5DatasetConfig) -> bool:
     logger.info("🎉 All required files found")
     return True
 
-def create_sample_dataset(config: M5DatasetConfig, sample_size: int = 10000):
+def create_sample_dataset(config: DatasetConfig, sample_size: int = 10000):
     """Create a smaller sample dataset for testing."""
     logger.info(f"Creating sample dataset with {sample_size} rows...")
     
@@ -125,7 +125,7 @@ def create_sample_dataset(config: M5DatasetConfig, sample_size: int = 10000):
         logger.info(f"  Calendar: {len(calendar)} rows")
         
         # Return config for sample dataset
-        sample_config = M5DatasetConfig(
+        sample_config = DatasetConfig(
             sales_train_path=str(sample_sales_path),
             prices_path=str(sample_prices_path),
             calendar_path=str(sample_calendar_path),
@@ -187,7 +187,7 @@ Examples:
                 logger.info(f"🔧 Auto-adjusting memory limit to {args.memory_limit:.1f}GB")
         
         # Create configuration
-        config = M5DatasetConfig(
+        config = DatasetConfig(
             max_memory_gb=args.memory_limit,
             chunk_size=args.chunk_size
         )
@@ -205,7 +205,7 @@ Examples:
                 return 1
         
         # Initialize processor
-        processor = M5DatasetProcessor(config)
+        processor = DatasetProcessor(config)
         
         if args.validate_only:
             logger.info("🔍 Running validation-only mode...")

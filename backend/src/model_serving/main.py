@@ -1,5 +1,4 @@
 
-import logging
 from typing import List
 from datetime import datetime
 from functools import lru_cache
@@ -8,7 +7,7 @@ from dotenv import load_dotenv
 import sys
 
 # FastAPI and dependencies
-from fastapi import FastAPI, HTTPException, Depends, status, Query
+from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -18,9 +17,9 @@ import uvicorn
 from src.logger import logger
 
 # Configuration
-from src.model_serving.prediction import ModelInfo, PredictionRequest,PredictionResponse,BatchPredictionRequest,BatchPredictionResponse
 from src.monitoring.drift import M5MonitoringSystem, MonitoringConfig
 from src.model_serving.model_manager import ModelManager,PredictionService
+from src.entity.prediction_entity import ModelInfo, PredictionRequest,PredictionResponse,BatchPredictionRequest,BatchPredictionResponse
 
 load_dotenv()
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))

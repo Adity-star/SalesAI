@@ -3,10 +3,8 @@ import mlflow
 
 import mlflow.pyfunc
 from mlflow.tracking import MlflowClient
-from typing import Dict, Any, Optional, List
-import yaml
+from typing import Dict, Any, Optional
 import pandas as pd
-import numpy as np
 from datetime import datetime
 import logging
 import joblib

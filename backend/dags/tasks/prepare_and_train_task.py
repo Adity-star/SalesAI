@@ -1,5 +1,5 @@
 
-from src.logger import logger
+from src import logger
 import logging
 import pandas as pd
 from airflow.exceptions import AirflowSkipException

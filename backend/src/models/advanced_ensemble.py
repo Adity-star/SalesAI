@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.optimize import minimize
-from typing import Dict, List, Tuple, Any
+from typing import Dict, Tuple
 from sklearn.linear_model import Ridge, Lasso, ElasticNet
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error

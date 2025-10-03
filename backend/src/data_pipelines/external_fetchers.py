@@ -2,12 +2,12 @@
 
 import os
 import requests
-import json
-from datetime import datetime, timedelta
 import random
 import logging
 import calendar as cal
 from src.logger import logger
+from datetime import datetime, timedelta
+
 
 logger = logging.getLogger(__name__)
 

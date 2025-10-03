@@ -1,41 +1,18 @@
-
-import pandas as pd
-import numpy as np
-from pathlib import Path
-import logging
-from typing import Dict, List, Any
-from datetime import datetime,date
+import yaml
+import mlflow
 import json
-from functools import lru_cache
 import hashlib
 import time
-
-# FastAPI and dependencies
-from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, status, Query
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
-from pydantic import BaseModel, Field, validator
-import uvicorn
-
-# ML libraries
-import lightgbm as lgb
-import joblib
-
-# Monitoring and observability
-from prometheus_client import Counter, Histogram, Gauge, generate_latest
-from prometheus_client.exposition import make_wsgi_app
-
-# Configuration
-from src.utils.config_loader import ConfigLoader
-from src.model_serving.prediction import ModelInfo, PredictionRequest,PredictionResponse,BatchPredictionRequest,BatchPredictionResponse
-from src.utils.mlflow_utils import MLflowManager
-from src.features.feature_pipeline import FeaturePipeline
-from src.data_pipelines.validators import DataValidator
-
-
-from pathlib import Path
+import asyncio
+import pandas as pd
+import numpy as np
+from fastapi import HTTPException
+from typing import Any, Dict, Optional
+from datetime import datetime
 from src.logger import logger
+from prometheus_client import Counter, Histogram, Gauge
+from src.utils.mlflow_utils import MLflowManager
+from src.entity.prediction_entity import PredictionRequest,PredictionResponse,BatchPredictionRequest,BatchPredictionResponse
 
 
 # Prometheus metrics
@@ -45,23 +22,6 @@ MODEL_LOAD_GAUGE = Gauge('model_load_timestamp', 'Timestamp of last model load',
 ACTIVE_REQUESTS = Gauge('active_requests', 'Number of active prediction requests')
 
 
-# -------------------------------
-# Model Manager
-# -------------------------------
-# model_manager.py
-
-import logging
-import yaml
-import joblib
-import mlflow
-from pathlib import Path
-from fastapi import HTTPException
-from typing import Any, Dict, Optional
-
-from datetime import datetime
-
-from src.logger import logger  # adjust as per your project
-# from src.utils.mlflow_utils import MLflowManager  # your MLflow helper
 
 class ModelManager:
     def __init__(self, config_path: str = "config/ml_config.yaml"):
@@ -123,24 +83,7 @@ class ModelManager:
 
 # -------------------------------
 # Prediction Service
-# -------------------------------
-
-# prediction_service.py
-
-import time
-import hashlib
-import json
-import asyncio
-from datetime import datetime
-from typing import List
-
-import numpy as np
-import pandas as pd
-
-from fastapi import HTTPException
-
-from src.model_serving.prediction import PredictionRequest, PredictionResponse, BatchPredictionResponse
-from src.logger import logger  # adjust path
+# ------------------------------
 
 class PredictionService:
     def __init__(self, model_manager: ModelManager, feature_engineer, data_validator):

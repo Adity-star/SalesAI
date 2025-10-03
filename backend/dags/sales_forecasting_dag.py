@@ -4,10 +4,11 @@ Contains only operators, dependencies, retry policy and scheduling.
 All business logic is delegated to tasks.* functions.
 """
 
-import os
+import sys
+sys.path.insert(0, '/opt/airflow/backend')
+
 import sys
 from datetime import datetime, timedelta
-import json
 
 import pandas as pd
 
@@ -21,7 +22,7 @@ from airflow.exceptions import AirflowSkipException
 
 
 import logging
-from src.logger import logger
+from src import logger
 
 logger = logging.getLogger(__name__)
 
@@ -48,10 +49,6 @@ default_args = {
 }
 
 
-DATA_DIR = Variable.get("sales_data_dir")
-ARTIFACT_DIR = Variable.get("artifacts_dir")
-APPROVAL_VAR = Variable.get("approve_production_var", "approve_production")
-
 
 with DAG(
     dag_id="sales_forecasting",
@@ -70,7 +67,7 @@ with DAG(
      
     @task(task_id="extract_data")
     def extract_data_wrapper():
-        return extract_data_task(data_dir=DATA_DIR)
+        return extract_data_task()
     
     # -------------------------
     # Data Validation
@@ -141,10 +138,10 @@ with DAG(
     # -------------------------
     # Cleanup (always run) - uses wrapper
     # -------------------------
-    @task(task_id="cleanup", trigger_rule=TriggerRule.ALL_DONE)
-    def cleanup_wrapper(temp_dir: str = DATA_DIR, artifact_dir: str = ARTIFACT_DIR) -> str:
-        from dags.tasks.model_deployement_tasks import cleanup
-        return cleanup(temp_dir=temp_dir, artifact_dir=artifact_dir)
+    # @task(task_id="cleanup", trigger_rule=TriggerRule.ALL_DONE)
+    # def cleanup_wrapper(temp_dir: str = DATA_DIR, artifact_dir: str = ARTIFACT_DIR) -> str:
+    #     from dags.tasks.model_deployement_tasks import cleanup
+    #     return cleanup(temp_dir=temp_dir, artifact_dir=artifact_dir)
 
     # -------------------------
     # DAG wiring
@@ -162,16 +159,19 @@ with DAG(
     transition_result = transition_to_production_wrapper(registration_result)
 
     report = generate_report_wrapper(training_result, validation_summary)
-    cleanup = cleanup_wrapper()
+    # cleanup = cleanup_wrapper()
 
     # dependencies
-    start >> extract_result >> validation_summary >> training_result >> evaluation_result
-    evaluation_result >> approval
-    approval >> registration_result >> transition_result
-    evaluation_result >> report
-    report >> cleanup
-    registration_result >> cleanup
-    transition_result >> cleanup
+    validation_summary = validate_data_wrapper(extract_result)
+    training_result = prepare_and_train_wrapper(extract_result, validation_summary)
+    evaluation_result = evaluate_models_wrapper(training_result)
+    approval_check.set_upstream(evaluation_result)
+    registration_result = register_best_models_wrapper(evaluation_result)
+    registration_result.set_upstream(approval_check)
+    transition_result = transition_to_production_wrapper(registration_result)
+    report = generate_report_wrapper(training_result, validation_summary)
+    # cleanup = cleanup_wrapper()
+    # cleanup.set_upstream(report)
+    # cleanup.set_upstream(transition_result)
 
     end = EmptyOperator(task_id="end", trigger_rule=TriggerRule.NONE_FAILED)
-    cleanup >> end

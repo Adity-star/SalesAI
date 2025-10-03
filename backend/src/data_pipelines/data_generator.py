@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import holidays
 from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List
 
 import logging
 from src.logger import logger

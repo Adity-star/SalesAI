@@ -1,6 +1,6 @@
 
 import logging
-from src.logger import logger
+from src import logger
 import os
 import sys
 from datetime import datetime, timedelta
@@ -10,8 +10,6 @@ from airflow.models import Variable
 logger = logging.getLogger(__name__)
 
 
-DATA_DIR = Variable.get("sales_data_dir", "/tmp/sales_data")
-ARTIFACT_DIR = Variable.get("artifacts_dir", "/tmp/artifacts")
 APPROVAL_VAR = Variable.get("approve_production_var", "approve_production")
 
 
@@ -68,24 +66,24 @@ def generate_performance_report_task(training_result: dict, validation_summary: 
         return report
 
 
-def cleanup_task(temp_dir: str = DATA_DIR, artifact_dir: str = ARTIFACT_DIR):
+# def cleanup_task():
        
-        # remove tmp directories safely
-        import shutil
-        try:
-            if os.path.exists(temp_dir):
-                shutil.rmtree(temp_dir)
-                logger.info(f"Removed data dir: {temp_dir}")
-        except Exception as e:
-            logger.warning(f"Cleanup data dir failed: {e}")
+#         # remove tmp directories safely
+#         import shutil
+#         try:
+#             if os.path.exists(temp_dir):
+#                 shutil.rmtree(temp_dir)
+#                 logger.info(f"Removed data dir: {temp_dir}")
+#         except Exception as e:
+#             logger.warning(f"Cleanup data dir failed: {e}")
 
-        try:
-            # optionally keep artifacts, but remove temporary intermediate dirs
-            temp_art = os.path.join(artifact_dir, "tmp")
-            if os.path.exists(temp_art):
-                shutil.rmtree(temp_art)
-                logger.info(f"Removed temp artifact dir: {temp_art}")
-        except Exception as e:
-            logger.warning(f"Cleanup artifacts failed: {e}")
+#         try:
+#             # optionally keep artifacts, but remove temporary intermediate dirs
+#             temp_art = os.path.join(artifact_dir, "tmp")
+#             if os.path.exists(temp_art):
+#                 shutil.rmtree(temp_art)
+#                 logger.info(f"Removed temp artifact dir: {temp_art}")
+#         except Exception as e:
+#             logger.warning(f"Cleanup artifacts failed: {e}")
 
-        return "cleanup_done"
+#         return "cleanup_done"

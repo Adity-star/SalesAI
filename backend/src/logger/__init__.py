@@ -5,9 +5,14 @@ import os
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from pathlib import Path
-from from_root import from_root
 import sys
 import re
+
+
+def from_root(path: str = "") -> str:
+    """Return absolute path from project root."""
+    return str(Path(__file__).resolve().parents[2] / path)
+
 
 # Constants
 LOG_DIR = 'logs'

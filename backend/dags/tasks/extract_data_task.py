@@ -3,21 +3,29 @@ import os
 from airflow.models import Variable
 import pandas as pd
 
-DATA_DIR = Variable.get("sales_data_dir", "/tmp/sales_data")
-def extract_data_task(data_dir: str = DATA_DIR) -> dict:
-        logger.info("Starting synthetic sales data generation")
-        from src.data_pipelines.data_generator import SyntheticDataGenerator
 
-        os.makedirs(data_dir, exist_ok=True)
+def extract_data_task() -> dict:
+        logger.info("🚀 Starting M5 dataset ingestion pipeline")
+        from src.data_pipelines.ingester import DatasetProcessor
+        from src.entity.ingest_entity import DatasetConfig
 
-        generator = SyntheticDataGenerator(start_date="2023-01-01", end_date="2023-01-21")
-        file_paths = generator.generate_sales_data(output_dir=data_dir)
+        config = DatasetConfig()
 
-        total_files = sum(len(paths) for paths in file_paths.values())
-        logger.info(f"Generated {total_files} files under {data_dir}")
+        processor = DatasetProcessor(config)
 
-        return {"data_output_dir": data_dir, "file_paths": file_paths, "total_files": total_files}
+        df ,quality_metrics = processor.run_full_pipeline()
 
+
+        logger.info(f"🎉 Processing completed! Dataset shape: {df.shape}, "
+                f"Date range: {df['date'].min()} to {df['date'].max()}")
+
+        del df 
+
+        import gc; gc.collect()
+        return {
+                "quality_score": quality_metrics.data_completeness_score,
+               "total_time_series": quality_metrics.total_time_series
+    }
 
 def validate_data_task(extract_result: dict, sample_n: int = 10) -> dict:
         file_paths = extract_result["file_paths"]

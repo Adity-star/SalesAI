@@ -1,5 +1,5 @@
 """
-M5 Model Monitoring & Drift Detection System
+Model Monitoring & Drift Detection System
 ==========================================
 
 Comprehensive monitoring system for production M5 forecasting models:
@@ -10,116 +10,35 @@ Comprehensive monitoring system for production M5 forecasting models:
 - Business metrics dashboards
 - Data quality monitoring
 """
-
+import time
 import pandas as pd
 import numpy as np
-from pathlib import Path
 import logging
-from typing import Dict, List, Optional, Tuple, Any, Union
-from dataclasses import dataclass, field, asdict
+from typing import Dict, List, Optional, Tuple, Any
+from dataclasses import asdict
 from datetime import datetime, timedelta, date
-import warnings
 import json
 import sqlite3
-import asyncio
 from collections import defaultdict, deque
-from abc import ABC, abstractmethod
-import time
-import hashlib
 
-# Statistical libraries
 from scipy import stats
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import IsolationForest
 from sklearn.decomposition import PCA
 
-# Monitoring and alerting
 import requests
 import schedule
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-# Visualization
-import matplotlib.pyplot as plt
-import seaborn as sns
-import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from src.entity.drift_entity import DriftAlert,MonitoringConfig,PerformanceMetrics
 
 # Configuration
 
 logger = logging.getLogger(__name__)
 
-# -------------------------------
-# Configuration Classes
-# -------------------------------
-
-@dataclass
-class MonitoringConfig:
-    """Configuration for model monitoring system."""
-    # Database settings
-    db_path: str = "monitoring.db"
-    retention_days: int = 90
-    
-    # Drift detection settings
-    drift_detection_window: int = 7  # days
-    drift_threshold: float = 0.1     # KS test p-value threshold
-    psi_threshold: float = 0.25      # Population Stability Index threshold
-    
-    # Performance monitoring
-    accuracy_window: int = 14        # days to calculate rolling accuracy
-    performance_degradation_threshold: float = 0.15  # 15% increase in error
-    min_samples_for_monitoring: int = 100
-    
-    # Alerting settings
-    email_alerts: bool = True
-    slack_webhook_url: Optional[str] = None
-    alert_cooldown_hours: int = 4    # Minimum hours between similar alerts
-    
-    # Business metrics
-    business_metrics_enabled: bool = True
-    forecast_bias_threshold: float = 0.1  # 10% bias threshold
-    inventory_impact_tracking: bool = True
-
-@dataclass
-class DriftAlert:
-    """Drift detection alert."""
-    timestamp: datetime
-    alert_type: str  # 'feature_drift', 'target_drift', 'performance_degradation'
-    severity: str    # 'warning', 'critical'
-    metric_name: str
-    metric_value: float
-    threshold: float
-    description: str
-    affected_features: Optional[List[str]] = None
-
-@dataclass
-class PerformanceMetrics:
-    """Model performance metrics tracking."""
-    model_name: str
-    timestamp: datetime
-    period_start: datetime
-    period_end: datetime
-    
-    # Accuracy metrics
-    rmse: float
-    mae: float
-    mase: float
-    smape: float
-    
-    # Business metrics
-    forecast_bias: float
-    forecast_accuracy_pct: float
-    inventory_waste_estimate: float
-    
-    # Volume metrics
-    predictions_count: int
-    zero_predictions_pct: float
-    
-    # Comparison to baseline
-    rmse_change_pct: float
-    mae_change_pct: float
 
 # -------------------------------
 # Data Storage Layer
